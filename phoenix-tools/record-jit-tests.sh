@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record IC generator runs over jit-tests with Phoenix's recorder (phoenix-docs/RECORDER.md).
+# Record IC generator runs over jit-tests with Phoenix's recorder (phoenix-docs/README.md).
 #
 #   phoenix-tools/record-jit-tests.sh [--no-build] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 #
