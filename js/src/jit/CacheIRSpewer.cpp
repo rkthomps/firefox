@@ -478,7 +478,7 @@ void CacheIRSpewer::endCache() {
 
 #endif /* JS_CACHEIR_SPEW */
 
-#ifdef ENABLE_JS_AOT_ICS
+#if defined(ENABLE_JS_AOT_ICS) || defined(JS_PHOENIX)
 
 // Note: for several of the functions below that return string
 // representations of enums, it's important to keep the strings below
@@ -701,4 +701,4 @@ void js::jit::SpewCacheIROpsAsAOT(GenericPrinter& out, CacheKind kind,
   out.printf("\n");
 }
 
-#endif /* ENABLE_JS_AOT_ICS */
+#endif /* ENABLE_JS_AOT_ICS || JS_PHOENIX */

@@ -205,6 +205,21 @@ set_config(
     depends_if("--enable-aot-ics-enforce")(lambda _: True),
 )
 
+# Phoenix: hooks for testing the Lean model of the baseline IC pipeline.
+option(
+    "--enable-phoenix",
+    help="{Enable|Disable} the Phoenix recorder (PHOENIX_RECORD)",
+)
+
+set_define(
+    "JS_PHOENIX",
+    depends_if("--enable-phoenix")(lambda _: True),
+)
+set_config(
+    "JS_PHOENIX",
+    depends_if("--enable-phoenix")(lambda _: True),
+)
+
 
 # JIT support
 # =======================================================

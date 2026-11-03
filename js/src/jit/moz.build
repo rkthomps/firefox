@@ -313,5 +313,8 @@ if CONFIG["ENABLE_JS_AOT_ICS"]:
         force=True,  # depends on list of files in js/src/ics/; always rebuild
     )
 
+if CONFIG["JS_PHOENIX"]:
+    SOURCES += ["PhoenixRecorder.cpp"]
+
 if CONFIG["FUZZING_INTERFACES"] or CONFIG["FUZZING_JS_FUZZILLI"]:
     include("/tools/fuzzing/libfuzzer-config.mozbuild")
