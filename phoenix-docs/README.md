@@ -4,31 +4,28 @@ This directory documents the infrastructure on `phoenix-dev` that tests the Lean
 `../cachet-lean` against the real SpiderMonkey.
 
 - [GOAL.md](GOAL.md): the four testing goals.
-- [FEASIBILITY.md](FEASIBILITY.md): how feasible each goal is, the plan, and where it stands.
-- [RECORDER.md](RECORDER.md): the recorder in detail: what it changes in SpiderMonkey, and the
-  record format.
-- [bug-fixes/](bug-fixes/): reports for the upstream bugs fixed on `phoenix-dev`, one per
+- [TODO.md](TODO.md): work deferred for later.
+- [CLAUDE.md](CLAUDE.md): instructions for agents: where things are, the rules for changing
+  Firefox, and how to keep these docs up to date.
+- [bug-fixes/](bug-fixes/): reports for the upstream bugs fixed on `phoenix`, one per
   `[BUG FIX]` commit.
-- [FUTURE_WORK.md](FUTURE_WORK.md): reminders.
-- [CLAUDE.md](CLAUDE.md): instructions for agents, including the rules for changing Firefox and
-  for the `phoenix` and `phoenix-dev` branches. `phoenix-tools/check-stack.py --worktree` checks
-  that the branches follow them.
+- [docs/](docs/), how things work:
+  - [feasibility.md](docs/feasibility.md): how feasible each goal is, the plan, and where it
+    stands;
+  - [recorder.md](docs/recorder.md): how the recorder works, and its record format;
+  - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, how to add a bug
+    fix, and how to move to a new pin;
+  - [spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into, the
+    builds, and their pitfalls.
 
 The rest of this file is how to record what SpiderMonkey's IC stub generators do.
 
 ## Building the recorder
 
 The recorder is compiled in only with `--enable-phoenix`. The JS-shell objdir `obj-js-x64` has
-it, from `mozconfig-js-x64` at the top of the worktree:
-
-```
-ac_add_options --enable-project=js
-ac_add_options --enable-debug
-ac_add_options --enable-phoenix
-mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-x64
-```
-
-`mozconfig*` files are gitignored, so recreate this one in a new worktree. Build with:
+it, from `mozconfig-js-x64` at the top of the worktree. `mozconfig*` files are gitignored; this
+one's contents, to recreate it in a new worktree, are in [docs/spidermonkey.md](docs/spidermonkey.md).
+Build with:
 
 ```
 MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build
@@ -120,4 +117,4 @@ To look at individual records, use `jq`, e.g.:
 jq -c 'select(.record=="generator") | [.args[1].tag, .stubName, .cacheir.aot]' RUN/records/*.jsonl
 ```
 
-What each field means is in [RECORDER.md](RECORDER.md).
+What each field means is in [docs/recorder.md](docs/recorder.md).

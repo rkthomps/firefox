@@ -1,12 +1,10 @@
-# Future work
+# TODO
 
-Reminders, not plans yet.
+Work deferred for later. Remove an item when it's done.
 
-## Bug fixes separable from the recording work: follow-ups
+## Branches: follow-ups
 
-Done on 2026-11-03: `phoenix` is the pin (tagged `phoenix-pin/f35f2f1f3ae8`) plus the `[BUG FIX]`
-commits, `phoenix-dev` is rebased onto it, and `phoenix-tools/check-stack.py` checks the
-structure. The rules and workflows are under "Branches" in [CLAUDE.md](CLAUDE.md). Left to do:
+The branch structure is in place (see [docs/branches.md](docs/branches.md)). Left to do:
 
 - Scripts for the two workflows, moving a fix to `phoenix` and moving the pin, if doing them by
   hand gets tedious.
@@ -25,8 +23,3 @@ there were. Add how many of them are distinct (the entries of `unique.jsonl`), a
 many tests and source locations they came from. A row's record count follows how many IC sites
 the tests have, so on its own it overstates how much there is to check: `UnaryArith.BitwiseBitNot
 int32,int32` is 253 records but only 35 distinct ones.
-
-## A better structure for `phoenix-docs/`
-
-It's currently flat: `CLAUDE.md`, `GOAL.md`, `FEASIBILITY.md`, `RECORDER.md`, this file, and
-`bug-fixes/`.

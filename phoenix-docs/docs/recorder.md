@@ -3,24 +3,17 @@
 The recorder writes down what SpiderMonkey's baseline IC pipeline does, so that the Lean model
 can be run on the same inputs and compared. So far it records **generator runs**: every time a
 baseline IC's stub generator runs, its inputs, what it decided, and the CacheIR it wrote. This is
-step 1 of goal 1b in [FEASIBILITY.md](FEASIBILITY.md).
+step 1 of goal 1b in [feasibility.md](feasibility.md).
 
-## Building it
+How to build it and run it, on one script or on all of jit-tests, is in the
+[README](../README.md). This file is how it works and what it writes.
+
+## What `--enable-phoenix` changes
 
 The recorder is compiled in only with `--enable-phoenix`, which defines `JS_PHOENIX`. Without
-the flag, `phoenix-dev` builds the same code as `phoenix`, plus the `[BUG FIX]` commits (see
-"Changes to Firefox" in [CLAUDE.md](CLAUDE.md)). `mozconfig-js-x64` has the flag:
-
-```
-ac_add_options --enable-project=js
-ac_add_options --enable-debug
-ac_add_options --enable-phoenix
-mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-x64
-```
-
-`mozconfig*` files are gitignored, so this one lives only in the worktree.
-
-What `--enable-phoenix` changes:
+the flag, `phoenix-dev` builds the same code as `phoenix` (see "Changes to Firefox" in
+[CLAUDE.md](../CLAUDE.md)). With it, the recorder still does nothing unless `PHOENIX_RECORD` is
+set.
 
 - `js/moz.configure`: the option and the `JS_PHOENIX` define.
 - `jit/PhoenixRecorder.h`, `jit/PhoenixRecorder.cpp` (in `jit/moz.build`, under
@@ -30,44 +23,9 @@ What `--enable-phoenix` changes:
   whether the stub was attached are both known.
 - `jit/CacheIRSpewer.{h,cpp}`: the AOT serializer (`SpewCacheIROpsAsAOT`) is compiled under
   `ENABLE_JS_AOT_ICS || JS_PHOENIX`. Two upstream bugs in it, which the recorder hit, are fixed
-  by `[BUG FIX]` commits, with reports in [bug-fixes/](bug-fixes/):
-  [0001](bug-fixes/0001-aot-spewer-typeofeq-operand.md) and
-  [0002](bug-fixes/0002-aot-spewer-immutable-view-kind.md).
-
-## Running it
-
-- `PHOENIX_RECORD=<dir>`: record into `<dir>`, which must exist. Each process that reaches an
-  IC appends one JSON object per line to `<dir>/<pid>.jsonl`, starting with a process record.
-  Without it, nothing is recorded.
-- `PHOENIX_RECORD_KINDS=<kind>,<kind>,...`: record only these `CacheKind`s (e.g.
-  `UnaryArith`). Without it, every kind is recorded.
-- A directory that can't be opened, or a kind that doesn't exist, crashes the shell on the first
-  IC, rather than silently recording nothing.
-- ICs only run in baseline, so a script must reach the baseline interpreter: with
-  `--baseline-eager` (or `--blinterp-eager`), or by running long enough. Run with `--no-ion` so
-  that hot code stays on baseline stubs.
-
-For all of jit-tests, use `phoenix-tools/record-jit-tests.sh`. It builds `obj-js-x64`, checks
-the kinds, runs jit-tests with the flags below, and dedupes the records:
-
-```
-phoenix-tools/record-jit-tests.sh [--no-build] LABEL [KINDS] [-- JIT_TEST_ARGS...]
-phoenix-tools/record-jit-tests.sh unaryarith UnaryArith
-phoenix-tools/record-jit-tests.sh bitnot-only UnaryArith -- basic/testBitwise.js
-```
-
-The run goes in `../phoenix-runs/<date>-LABEL` (or `$PHOENIX_RUNS/<date>-LABEL`), with the
-records, `unique.jsonl` and `summary.txt`, the jit-test log and `failures.txt`, the build log,
-the command, and the revision and uncommitted changes it ran on. By hand, the run is:
-
-```
-RUN=../phoenix-runs/<date>-<label>; mkdir -p $RUN/records
-PHOENIX_RECORD=$RUN/records PHOENIX_RECORD_KINDS=UnaryArith \
-  python3 js/src/jit-test/jit_test.py obj-js-x64/dist/bin/js \
-  --args="--no-ion --baseline-eager" --no-progress --format=automation -w $RUN/failures.txt
-```
-
-Runs go in `../phoenix-runs/`, outside every repository.
+  by `[BUG FIX]` commits, with reports in [bug-fixes/](../bug-fixes/):
+  [0001](../bug-fixes/0001-aot-spewer-typeofeq-operand.md) and
+  [0002](../bug-fixes/0002-aot-spewer-immutable-view-kind.md).
 
 ## What's recorded
 
@@ -132,19 +90,12 @@ One per generator run, e.g. for `~0`:
     keyed on.
   - `stubFields`: each stub field's type and raw value, which the AOT text leaves out.
 
-## Post-processing
+### Deduplicated records
 
-`phoenix-tools/corpus.py`:
-
-- `corpus.py dedupe RUN_DIR/records` merges the per-process files into `unique.jsonl`, one line
-  per distinct generator record (equal apart from `pid` and `loc`), with a `count`, the `locs`
-  it came from, and the `tests` that produced it. It prints a summary by kind, stub name and the
-  `Value` inputs' tags.
-- `corpus.py tests RUN_DIR/records --stub UnaryArith.BitwiseBitNot --tags int32,int32` lists the
-  tests whose records have that stub name and those tags.
-
-`phoenix-tools/tests/bitnot.js` is a targeted test: one `~` site that attaches the int32 stub,
-runs it on edge values, then fails its guard with every other type.
+`phoenix-tools/corpus.py dedupe` writes `unique.jsonl` next to the records: one line per distinct
+generator record, i.e. records equal apart from `pid` and `loc`. Each is the record without
+those two fields, plus `count` (how many records it stands for), `locs` (their `file:line:column`
+locations) and `tests` (the tests they came from, from the process records).
 
 ## Not recorded yet
 

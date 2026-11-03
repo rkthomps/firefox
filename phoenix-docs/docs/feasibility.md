@@ -2,12 +2,12 @@
 
 Written 2026-11-02, against `cachet-lean` at `35420cb` ("Working on backend-independent theorem")
 and Firefox at `f35f2f1f3ae8` (the pin, tagged `phoenix-pin/f35f2f1f3ae8`). The goals are in
-[GOAL.md](GOAL.md).
+[GOAL.md](../GOAL.md).
 
 ## Summary
 
 All four goals are feasible. SpiderMonkey already has much of the plumbing, and one observation
-makes the most valuable goal easier than [GOAL.md](GOAL.md) assumes: **baseline stub code depends
+makes the most valuable goal easier than [GOAL.md](../GOAL.md) assumes: **baseline stub code depends
 only on the stub's CacheIR, not on the heap.** So the Lean *compiler* can be tested, and its stubs
 substituted into real test runs, without modeling any memory. Heap modeling is needed only to test
 the Lean *generators* and the *interpreter* on ops that touch memory, and none are translated yet.
@@ -29,11 +29,11 @@ substitution, with the x64 hardware harness built in parallel. Details are in "P
 
 From `../cachet-lean/docs/arch/layers.md` and `plan.md`:
 
-- **x64** ([x64/overview.md](../../cachet-lean/docs/arch/x64/overview.md)): a decoder and an
+- **x64** ([x64/overview.md](../../../cachet-lean/docs/arch/x64/overview.md)): a decoder and an
   interpreter following the SDM. These are the trusted base. 11 instructions: MOV, SHR, NOT, ADD,
   OR, XOR, CMP, TEST, Jcc, RET, JMP. There's an untrusted table-driven encoder whose round trip is
   proved, and an assembler with SpiderMonkey's `Assembler` methods as helpers.
-- **32-bit ARM** ([arm/overview.md](../../cachet-lean/docs/arch/arm/overview.md)): ARMv7-A, ARM
+- **32-bit ARM** ([arm/overview.md](../../../cachet-lean/docs/arch/arm/overview.md)): ARMv7-A, ARM
   state only. Nine instructions, a decoder over the encoding diagrams as data, an encoder with the
   round trip proved, and an assembler built from translated `as_*` methods (including
   `Imm8::EncodeImm`).
@@ -87,7 +87,7 @@ Read at the pinned commit:
     corpus from whole test suites.
   - These fields are exactly the Lean `CacheIRWriter`'s (`ops`, `numInputOperands`,
     `nextOperandId`, `nextInstructionId`, `stubFields`, `operandLastUsed`;
-    [cacheir/cacheir.md](../../cachet-lean/docs/arch/cacheir/cacheir.md)). That makes this format
+    [cacheir/cacheir.md](../../../cachet-lean/docs/arch/cacheir/cacheir.md)). That makes this format
     the natural exchange format between the two.
   - **But `--enable-aot-ics` builds only with the portable baseline interpreter (PBL).** In a build
     with the native JIT, `BaselineCacheIRCompiler.cpp` stops with `#error AOT ICs are only
@@ -115,7 +115,7 @@ Build these once. Every goal uses them.
 
 1. **A recorder in SpiderMonkey** on `phoenix-dev`, compiled in only with `--enable-phoenix`, and
    off unless `PHOENIX_RECORD=<dir>` is set. It writes JSON Lines. How to build, run and read it
-   is in [RECORDER.md](RECORDER.md).
+   is in [recorder.md](recorder.md).
    - in `LookupOrCompileStub`, after `comp.compile()`: the kind, the CacheIR in AOT text and as raw
      bytes, the code (`code->raw()`, `instructionsSize()`), its relocations, and the code offset at
      which each CacheIR op begins. The offsets come from a one-line hook in the compile loop. They
@@ -148,25 +148,9 @@ Build these once. Every goal uses them.
    and interpreter operations the model handled. That number is a progress metric for the whole
    project, not just for testing.
 4. **Builds.** The browser objdir has no JS shell, so add JS-shell objdirs selected with
-   `MOZCONFIG`. `obj-js-x64` is built, with the recorder; `obj-js-armsim` isn't yet.
-   `obj-js-pbl` (`mozconfig-js-pbl`: `--enable-portable-baseline-interp --enable-aot-ics`, no
-   recorder) is upstream's AOT IC build, used to reproduce the bugs in [bug-fixes/](bug-fixes/).
-
-   ```
-   # mozconfig-js-x64: jit-tests, the x64 corpus, substitution
-   ac_add_options --enable-project=js
-   ac_add_options --enable-debug
-   ac_add_options --enable-phoenix
-   mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-x64
-   ```
-   ```
-   # mozconfig-js-armsim: ARM stub bytes on this machine (needs a 32-bit x86 host build)
-   ac_add_options --enable-project=js
-   ac_add_options --enable-debug
-   ac_add_options --target=i686-pc-linux-gnu
-   ac_add_options --enable-simulator=arm
-   mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-armsim
-   ```
+   `MOZCONFIG`. `obj-js-x64` is built, with the recorder, and so is `obj-js-pbl` (upstream's AOT
+   IC build, for reproducing bugs); `obj-js-armsim` isn't yet. Their mozconfigs are in
+   [spidermonkey.md](spidermonkey.md).
 
 ## Goal 1: SpiderMonkey's tests on the Lean pipeline's stubs
 
@@ -306,7 +290,7 @@ from cheapest:
    AArch32 can differ from ARMv7 where ARMv7 says UNPREDICTABLE. The model already treats those
    cases as `unpredictable`, so the harness compares only defined behaviour.
 
-The hardware also settles a question [arm/overview.md](../../cachet-lean/docs/arch/arm/overview.md)
+The hardware also settles a question [arm/overview.md](../../../cachet-lean/docs/arch/arm/overview.md)
 leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either faults or doesn't.
 
 ## Goal 4: the bytes a stub generator emits
@@ -315,8 +299,8 @@ leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either 
 
 - Byte equality isn't expected today, by design. The encoder writes the decoder's table rows in a
   fixed form: always a SIB byte, `89` where SpiderMonkey writes `8B` for `movl`, and no `rel8` for
-  backward jumps ([x64/encoder.md](../../cachet-lean/docs/arch/x64/encoder.md),
-  [x64/assembler.md](../../cachet-lean/docs/arch/x64/assembler.md)). The assembler was written so
+  backward jumps ([x64/encoder.md](../../../cachet-lean/docs/arch/x64/encoder.md),
+  [x64/assembler.md](../../../cachet-lean/docs/arch/x64/assembler.md)). The assembler was written so
   that its *instructions* are the ones SpiderMonkey's bytes decode to.
 - So compare **instructions**. Decode SpiderMonkey's recorded bytes with the Lean decoder, and
   compare them with Lean's `asmOf` for the same CacheIR. Compare jumps by the instruction they
@@ -324,7 +308,7 @@ leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either 
   no instrumentation in SpiderMonkey. It also runs the trusted decoder over real SpiderMonkey code.
 - **Byte equality** then needs `X86Encoding::BaseAssembler` translated: its formatter
   (`oneByteOp`, `memoryModRM`, …) and how it patches forward jumps when a label is bound. This is
-  deferred in [x64/encoder.md](../../cachet-lean/docs/arch/x64/encoder.md). It's mechanical, and
+  deferred in [x64/encoder.md](../../../cachet-lean/docs/arch/x64/encoder.md). It's mechanical, and
   the existing round-trip proof shows what proving it would take.
 
 **ARM: probably equal bytes already.**
@@ -333,7 +317,7 @@ leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either 
   essentially one encoding. A word-for-word comparison is the first thing to run.
 - SpiderMonkey's ARM bytes come from the `armsim` build, which emits real ARM code on this machine.
   The alternative is a cross-compiled shell under qemu.
-- The comparison will also settle one choice [examples.md](../../cachet-lean/docs/arch/examples.md)
+- The comparison will also settle one choice [examples.md](../../../cachet-lean/docs/arch/examples.md)
   records as the model's own: which of `takeAnyValue`'s two `takeAnyGeneral()` calls runs first.
   C++ leaves argument evaluation order unspecified, and clang picks one.
 
@@ -367,7 +351,7 @@ adding now.
 
 **Ways to give the Lean generator the heap it ran on:**
 
-1. **Trace the C++ generator's reads** (the plan in [GOAL.md](GOAL.md)), with DynamoRIO or Pin,
+1. **Trace the C++ generator's reads** (the plan in [GOAL.md](../GOAL.md)), with DynamoRIO or Pin,
    between marker calls around `tryAttachStub`. This gives a partial heap. A faithful translation
    reads only what C++ read, so if Lean reads outside the traced set, the translation reads
    something C++ didn't. That's a mismatch report in itself. Filter out reads of the writer's own
@@ -390,7 +374,7 @@ start at any time.
 - **M0. Builds:** the `js-x64` objdir, and run jit-tests on it once to get a baseline. *Done.*
 - **M1. Recorder and corpus:** the stub, generator and interpreter records, plus per-op code
   offsets. Then a corpus from jit-tests. *Generator records done, with a `UnaryArith` corpus
-  from jit-tests (see [RECORDER.md](RECORDER.md)).*
+  from jit-tests (see [recorder.md](recorder.md)).*
 - **M2. Lean driver, compiler side:** parse AOT text into `CacheOp`, compile, and compare
   instructions on x64 (goal 4). This is the first real signal, with a coverage report.
 - **M3. Substitution (goal 1a):** compare mode, then replay. Then jit-tests with `--no-ion
@@ -411,7 +395,7 @@ start at any time.
   The infrastructure pays off as ops are translated, and the coverage number makes that visible.
   Prioritizing ops by how often the corpus uses them is one way to choose what to translate next.
 - **Two corpus bugs, fixed on `phoenix-dev`** by `[BUG FIX]` commits, with reproductions in
-  [bug-fixes/](bug-fixes/). In the AOT serializer, `spewTypeofEqOperandImm` passes the argument's
+  [bug-fixes/](../bug-fixes/). In the AOT serializer, `spewTypeofEqOperandImm` passes the argument's
   name as the format string, so `LoadTypeOfEqObjectResult` is written wrong (latent upstream:
   PBL's hybrid ICs never attach that stub). And `ArrayBufferViewKindName` doesn't handle
   `ArrayBufferViewKind::Immutable`, so serializing an op with that kind hits `MOZ_CRASH`. Both

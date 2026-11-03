@@ -6,17 +6,10 @@ it. This effort tests that model against the real SpiderMonkey at the commit the
 against, so that a mistranslation shows up as a test failure, not only as a proof that won't go
 through.
 
-Where things live:
-
-- `phoenix`: the reference implementation, checked out in `../firefox-phoenix`. It's the Firefox
-  commit the model is developed against (`f35f2f1f3ae8`, tagged `phoenix-pin/f35f2f1f3ae8`), plus
-  fixes for SpiderMonkey bugs found along the way, each a `[BUG FIX]` commit with a report in
-  `phoenix-docs/bug-fixes/`.
-- `phoenix-dev`: the branch where the testing infrastructure is developed, checked out in
-  `../firefox-phoenix-dev`. It's `phoenix` plus the infrastructure, kept rebased onto `phoenix`.
-  The rules for both branches are in [CLAUDE.md](CLAUDE.md).
-- `../firefox`: tracks upstream Firefox (`main`).
-- `../cachet-lean`: the Lean model and its proofs, documented in its `CLAUDE.md` and `docs/arch/`.
+The reference is the branch `phoenix`: the Firefox commit the model is developed against, plus
+fixes for SpiderMonkey bugs found along the way. The infrastructure is developed on `phoenix-dev`,
+on top of it. Where the checkouts are is in [CLAUDE.md](CLAUDE.md), and how the branches work is
+in [docs/branches.md](docs/branches.md).
 
 ## The four goals
 
@@ -66,4 +59,4 @@ the same stub as SpiderMonkey: a code buffer with the same bytes, for each backe
 
 ## Status
 
-How feasible each goal is, and proposed strategies, are in [FEASIBILITY.md](FEASIBILITY.md).
+How feasible each goal is, and proposed strategies, are in [docs/feasibility.md](docs/feasibility.md).
