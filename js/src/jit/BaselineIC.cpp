@@ -19,6 +19,9 @@
 #include "jit/JitSpewer.h"
 #include "jit/Linker.h"
 #include "jit/PerfSpewer.h"
+#ifdef JS_PHOENIX
+#  include "jit/PhoenixRecorder.h"
+#endif
 #include "jit/SharedICHelpers.h"
 #include "jit/SharedICRegisters.h"
 #include "jit/StubFolding.h"
@@ -521,7 +524,13 @@ static void TryAttachStub(const char* name, JSContext* cx, BaselineFrame* frame,
     jsbytecode* pc = StubOffsetToPc(stub, script);
     bool attached = false;
     IRGenerator gen(cx, script, pc, stub->state(), std::forward<Args>(args)...);
+#ifdef JS_PHOENIX
+    ICState stateBefore = stub->state();
+    AttachDecision decision = gen.tryAttachStub();
+    switch (decision) {
+#else
     switch (gen.tryAttachStub()) {
+#endif
       case AttachDecision::Attach: {
         ICAttachResult result =
             AttachBaselineCacheIRStub(cx, gen.writerRef(), gen.cacheKind(),
@@ -541,6 +550,10 @@ static void TryAttachStub(const char* name, JSContext* cx, BaselineFrame* frame,
     if (!attached) {
       stub->trackNotAttached();
     }
+#ifdef JS_PHOENIX
+    phoenix::RecordGenerator<IRGenerator, Args...>(script, pc, stateBefore, gen,
+                                                   decision, attached, args...);
+#endif
   }
 }
 
