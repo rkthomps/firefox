@@ -3,7 +3,7 @@
 
   check-stack.py [--worktree] [--reference REF] [--dev REF]
 
-The structure (see "Branches" in phoenix-docs/CLAUDE.md):
+The structure (see phoenix-docs/docs/branches.md):
 
   phoenix-pin/<sha>   the upstream commit cachet-lean translates (a tag)
   phoenix             the pin plus [BUG FIX] commits only
