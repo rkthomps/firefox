@@ -30,17 +30,23 @@ through `searchfox-cli`.
 
 Each build has its own objdir, chosen with `MOZCONFIG`, e.g.
 `MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build`. `mozconfig*` files are gitignored, so recreate
-them from here in a new worktree.
+them from here in a new worktree. An objdir belongs to the checkout it was built from: it records
+the source directory's absolute path, so it can't be moved to another checkout, only rebuilt
+there.
 
-| Objdir | Mozconfig | What it's for |
-|---|---|---|
-| `obj-x86_64-pc-linux-gnu` | `mozconfig` | the browser (debug). It has no JS shell: `--enable-js-shell` is on by default only for standalone JS builds |
-| `obj-js-x64` | `mozconfig-js-x64` | the JS shell with the recorder: jit-tests, the x64 corpus, and later substitution |
-| `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter), without Phoenix: reproducing the bugs in [bug-fixes/](../bug-fixes/) |
-| `obj-js-armsim` | `mozconfig-js-armsim` | not built yet: ARM stub bytes on this machine, through SpiderMonkey's ARM simulator |
+Builds with Phoenix are in `../firefox-phoenix-dev`. Builds without it are in the reference
+checkout, `../firefox-phoenix` (see [branches.md](branches.md)), whose sources are `phoenix`'s.
+
+| Checkout | Objdir | Mozconfig | What it's for |
+|---|---|---|---|
+| `firefox-phoenix-dev` | `obj-js-x64` | `mozconfig-js-x64` | the JS shell with the recorder: jit-tests, the x64 corpus, substitution |
+| `firefox-phoenix-dev` | `obj-x86_64-pc-linux-gnu` | `mozconfig` | the browser (debug), and clangd's database. It has no JS shell: `--enable-js-shell` is on by default only for standalone JS builds |
+| `firefox-phoenix` | `obj-js-x64` | `mozconfig-js-x64`, without `--enable-phoenix` | a plain x64 shell of the reference: reproducing a JIT bug without Phoenix |
+| `firefox-phoenix` | `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter): reproducing the bugs in [bug-fixes/](../bug-fixes/) |
+| | `obj-js-armsim` | `mozconfig-js-armsim` | not built yet: ARM stub bytes on this machine, through SpiderMonkey's ARM simulator |
 
 ```
-# mozconfig-js-x64
+# mozconfig-js-x64 (firefox-phoenix's is the same without --enable-phoenix, which phoenix lacks)
 ac_add_options --enable-project=js
 ac_add_options --enable-debug
 ac_add_options --enable-phoenix
@@ -66,8 +72,8 @@ mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-armsim
 ```
 
 - A PBL shell runs PBL only with `--portable-baseline`, and AOT ICs only with `--aot-ics`.
-- `./mach build && ./mach ide vscode --no-interactive` rebuilds the browser objdir and refreshes
-  clangd's database.
+- `./mach build && ./mach ide vscode --no-interactive`, in `../firefox-phoenix-dev`, rebuilds the
+  browser objdir and refreshes clangd's database.
 
 ## Pitfalls
 

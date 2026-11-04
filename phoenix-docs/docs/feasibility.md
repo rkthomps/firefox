@@ -150,8 +150,8 @@ Build these once. Every goal uses them.
    project, not just for testing.
 4. **Builds.** The browser objdir has no JS shell, so add JS-shell objdirs selected with
    `MOZCONFIG`. `obj-js-x64` is built, with the recorder, and so is `obj-js-pbl` (upstream's AOT
-   IC build, for reproducing bugs); `obj-js-armsim` isn't yet. Their mozconfigs are in
-   [spidermonkey.md](spidermonkey.md).
+   IC build, for reproducing bugs); `obj-js-armsim` isn't yet. Which checkout has each, and
+   their mozconfigs, are in [spidermonkey.md](spidermonkey.md).
 
 ## Goal 1: SpiderMonkey's tests on the Lean pipeline's stubs
 
@@ -403,7 +403,7 @@ start at any time.
 - **Coverage is small:** 2 of 468 CacheIR ops. For now, nearly every stub in a test run is C++'s.
   The infrastructure pays off as ops are translated, and the coverage number makes that visible.
   Prioritizing ops by how often the corpus uses them is one way to choose what to translate next.
-- **Two corpus bugs, fixed on `phoenix-dev`** by `[BUG FIX]` commits, with reproductions in
+- **Two corpus bugs, fixed on `phoenix`** by `[BUG FIX]` commits, with reproductions in
   [bug-fixes/](../bug-fixes/). In the AOT serializer, `spewTypeofEqOperandImm` passes the argument's
   name as the format string, so `LoadTypeOfEqObjectResult` is written wrong (latent upstream:
   PBL's hybrid ICs never attach that stub). And `ArrayBufferViewKindName` doesn't handle
