@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge and deduplicate the generator records of a PHOENIX_RECORD run.
+"""Merge, deduplicate and summarize the records of a PHOENIX_RECORD run.
 
   corpus.py dedupe RECORDS_DIR
       Merge RECORDS_DIR/<pid>.jsonl into RECORDS_DIR/unique.jsonl, one line per
@@ -10,6 +10,11 @@
   corpus.py tests RECORDS_DIR --stub NAME [--tags TAG,TAG,...]
       Print the tests whose records have stub name NAME (and, with --tags,
       those tags for the Value inputs, in order), from unique.jsonl.
+
+  corpus.py replay RECORDS_DIR
+      For a run with PHOENIX_REPLAY: count the compile records by what the
+      replay table did with them, and list the stubs whose code was
+      substituted, with how many tests compiled each.
 
 Records are identical when they're equal apart from "pid" and "loc". A
 record's test is the script its process ran, from the process record that
@@ -86,6 +91,37 @@ def dedupe(records_dir):
         print(f"{count:10}  {kind:20} {name:40} {','.join(tags)}")
 
 
+def replay(records_dir):
+    results = collections.Counter()
+    substituted = collections.Counter()
+    substituted_tests = collections.defaultdict(set)
+    for path in sorted(records_dir.glob("[0-9]*.jsonl")):
+        test = None
+        with path.open() as f:
+            for line in f:
+                record = json.loads(line)
+                if record["record"] == "process":
+                    test = test_of(record["argv"])
+                    continue
+                if record["record"] != "compile" or record["replay"] is None:
+                    continue
+                results[record["replay"]] += 1
+                if record["replay"] == "substituted":
+                    key = (record["kind"], record["stubName"], record["cacheir"]["bytes"])
+                    substituted[key] += 1
+                    substituted_tests[key].add(test)
+    total = sum(results.values())
+    print(
+        f"{total} stub compilations with a replay table: "
+        + ", ".join(f"{count} {result}" for result, count in sorted(results.items()))
+    )
+    if substituted:
+        print("Substituted (compilations, tests, kind, stub name, CacheIR):")
+        for (kind, name, cacheir), count in sorted(substituted.items()):
+            ntests = len(substituted_tests[(kind, name, cacheir)])
+            print(f"{count:10} {ntests:6}  {kind:12} {name:30} {cacheir}")
+
+
 def tests(records_dir, stub, tags):
     found = set()
     with (records_dir / "unique.jsonl").open() as f:
@@ -111,12 +147,16 @@ def main():
     p.add_argument("records_dir", type=pathlib.Path)
     p.add_argument("--stub", required=True)
     p.add_argument("--tags", type=lambda s: tuple(s.split(",")))
+    p = sub.add_parser("replay")
+    p.add_argument("records_dir", type=pathlib.Path)
     args = parser.parse_args()
 
     if args.command == "dedupe":
         dedupe(args.records_dir)
-    else:
+    elif args.command == "tests":
         tests(args.records_dir, args.stub, args.tags)
+    else:
+        replay(args.records_dir)
 
 
 if __name__ == "__main__":
