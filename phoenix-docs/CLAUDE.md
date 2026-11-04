@@ -23,12 +23,14 @@ model against the real SpiderMonkey.
 - [docs/feasibility.md](docs/feasibility.md): how feasible each goal is, the plan, and where
   it stands.
 - [docs/recorder.md](docs/recorder.md): how the recorder works, and its record format.
+- [docs/substitution.md](docs/substitution.md): replacing stub code with Lean's (`PHOENIX_REPLAY`),
+  the replay table's format, and what the Lean driver has to produce.
 - [docs/branches.md](docs/branches.md): the branches, and how to add a bug fix or move the pin.
 - [docs/spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into,
   the builds, and their pitfalls.
 
-**Tools** are in `phoenix-tools/`: `record-jit-tests.sh`, `corpus.py` and `check-stack.py`, a
-test in `tests/`, and the bug reports' scripts in `repro/`. Recorded runs go in
+**Tools** are in `phoenix-tools/`: `record-jit-tests.sh`, `corpus.py`, `replay-table.py` and
+`check-stack.py`, a test in `tests/`, and the bug reports' scripts in `repro/`. Recorded runs go in
 `../phoenix-runs/`.
 
 **Checkouts and branches** (details in [docs/branches.md](docs/branches.md)):

@@ -1,9 +1,13 @@
 # The recorder
 
 The recorder writes down what SpiderMonkey's baseline IC pipeline does, so that the Lean model
-can be run on the same inputs and compared. So far it records **generator runs**: every time a
-baseline IC's stub generator runs, its inputs, what it decided, and the CacheIR it wrote. This is
-step 1 of goal 1b in [feasibility.md](feasibility.md).
+can be run on the same inputs and compared. It records:
+
+- **generator runs**: every time a baseline IC's stub generator runs, its inputs, what it decided,
+  and the CacheIR it wrote. This is step 1 of goal 1b in [feasibility.md](feasibility.md);
+- **stub compilations**: every time the baseline CacheIR compiler compiles a CacheIR, the machine
+  code, where each op's code begins, and what the replay table did with it (see
+  [substitution.md](substitution.md)).
 
 How to build it and run it, on one script or on all of jit-tests, is in the
 [README](../README.md). This file is how it works and what it writes.
@@ -18,9 +22,14 @@ set.
 - `js/moz.configure`: the option and the `JS_PHOENIX` define.
 - `jit/PhoenixRecorder.h`, `jit/PhoenixRecorder.cpp` (in `jit/moz.build`, under
   `CONFIG["JS_PHOENIX"]`): the recorder.
-- `jit/BaselineIC.cpp`, `TryAttachStub`: the hook. It's the one place where every baseline
-  generator that goes through the generic path is built and run, and where the decision and
-  whether the stub was attached are both known.
+- `jit/PhoenixStubCode.h`, `jit/PhoenixStubCode.cpp` (likewise): what the compiler records about
+  a stub's code, and substitution ([substitution.md](substitution.md)).
+- `jit/BaselineIC.cpp`, `TryAttachStub`: the generator hook. It's the one place where every
+  baseline generator that goes through the generic path is built and run, and where the decision
+  and whether the stub was attached are both known.
+- `jit/BaselineCacheIRCompiler.{h,cpp}`: `compile()` notes the code offset where each op, the
+  return and the failure paths begin, into a fixed array, so that it never allocates. The hook
+  in `LookupOrCompileStub`, after `compile()`, records the compilation and substitutes code.
 - `jit/CacheIRSpewer.{h,cpp}`: the AOT serializer (`SpewCacheIROpsAsAOT`) is compiled under
   `ENABLE_JS_AOT_ICS || JS_PHOENIX`. Two upstream bugs in it, which the recorder hit, are fixed
   by `[BUG FIX]` commits, with reports in [bug-fixes/](../bug-fixes/):
@@ -29,26 +38,32 @@ set.
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type.
+Every line has `v`, the format's version, and `record`, its type. This is version 2 (version 1
+had no compile records, and no `jitOptions` or `replay` in process records).
 
 ### Process records
 
 The first line of each process's records, written when the recorder starts:
 
 ```json
-{"v":1,"record":"process","pid":3413522,"argv":["…/obj-js-x64/dist/bin/js","--no-ion",…,"-f","…/jit-test/tests/basic/bug1666856.js"]}
+{"v":2,"record":"process","pid":3413522,"argv":["…/obj-js-x64/dist/bin/js","--no-ion",…,"-f","…/jit-test/tests/basic/bug1666856.js"],
+ "jitOptions":{"icFramePointers":false,"spectreIndexMasking":false,"spectreObjectMitigations":false,
+               "spectreStringMitigations":false,"spectreValueMasking":false,"spectreJitToCxxCalls":false},
+ "replay":null}
 ```
 
-`argv` is the shell's command line, from `/proc/self/cmdline`. It names the test, which a
-record's `loc` doesn't when the IC is in a library (`jit-test/lib/*.js`) or in code made by
-`Function` or `eval`. For jit-tests, the test is the value of the last `-f` or `--module`.
+- `argv`: the shell's command line, from `/proc/self/cmdline`. It names the test, which a
+  record's `loc` doesn't when the IC is in a library (`jit-test/lib/*.js`) or in code made by
+  `Function` or `eval`. For jit-tests, the test is the value of the last `-f` or `--module`.
+- `jitOptions`: the `JitOptions` that change the code the compiler emits for some stubs.
+- `replay`: the replay table's path (`PHOENIX_REPLAY`), or `null`.
 
 ### Generator records
 
 One per generator run, e.g. for `~0`:
 
 ```json
-{"v":1,"record":"generator","pid":3260920,"kind":"UnaryArith",
+{"v":2,"record":"generator","pid":3260920,"kind":"UnaryArith",
  "loc":{"file":"phoenix-tools/tests/bitnot.js","line":5,"column":10,"pcOffset":3,"op":"BitNot"},
  "state":{"mode":"Specialized","isFirstStub":true,"numOptimizedStubs":0},
  "args":[{"type":"JSOp","name":"BitNot","byte":20},
@@ -90,6 +105,43 @@ One per generator run, e.g. for `~0`:
     keyed on.
   - `stubFields`: each stub field's type and raw value, which the AOT text leaves out.
 
+### Compile records
+
+One per compilation of a CacheIR by the baseline CacheIR compiler. A zone compiles each kind and
+CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~` stub:
+
+```json
+{"v":2,"record":"compile","pid":3260920,"kind":"UnaryArith","stubName":"UnaryArith.BitwiseBitNot",
+ "cacheir":{"aot":"UnaryArith, 1, 1, 2, JSVAL_TYPE_UNKNOWN, 0, , LASTUSED(1) , OP(GuardToInt32) ID(0) OP(Int32NotResult) ID(0) ",
+            "bytes":"0b00006c0100"},
+ "code":{"bytes":"834708014989cb…488b7f10ff270f0b",
+         "ops":[{"op":"GuardToInt32","offset":4},{"op":"Int32NotResult","offset":24}],
+         "tooManyOps":false,"returnOffset":64,"failurePathsOffset":65,
+         "relocationBytes":0,"localTracingSlots":0,"makesGCCalls":false},
+ "replay":null}
+```
+
+- `stubName`: the name of the stub being attached when the code was compiled. Other stubs with
+  the same CacheIR may have other names.
+- `cacheir`: as in generator records, without the stub fields' values, which belong to each stub,
+  not to the code.
+- `code`: the C++ compiler's code, even when the replay table replaced it:
+  - `bytes`: the instructions, from the code's start (`JitCode::raw()`), in hex;
+  - `ops`: each CacheIR op and the offset where its code begins. An op's code runs to the next
+    op's offset, and the last one's to `returnOffset`, where the return to the caller begins.
+    Before the first op is the entry counter's increment. `failurePathsOffset` is where the
+    failure paths begin, to the end of the code. `tooManyOps` is true if the stub had more than
+    256 ops, and only the first 256 are listed;
+  - `relocationBytes`: the size of the code's relocation tables. Code with relocations embeds
+    addresses the linker patches in. The converse doesn't hold: calls into C++ embed absolute
+    addresses without relocations;
+  - `localTracingSlots`, `makesGCCalls`: what the compiler says about the code, which
+    substitution keeps.
+- `replay`: `null` without a replay table; otherwise `substituted`, `notInTable` or `refused`.
+
+The code is from a debug build, so it has debug-only checks (e.g. an `int3` after
+`Int32NotResult` that checks the upper half of its result is zero).
+
 ### Deduplicated records
 
 `phoenix-tools/corpus.py dedupe` writes `unique.jsonl` next to the records: one line per distinct
@@ -102,4 +154,4 @@ locations) and `tests` (the tests they came from, from the process records).
 - Generators built outside `TryAttachStub`: `SetProp` and `SetElem` (whose decision can be
   `Deferred`), and `Call` and `SpreadCall`. They need hooks in their own fallbacks.
 - Ion's ICs (`IonIC.cpp`). Ion doesn't run baseline stubs, and the runs use `--no-ion`.
-- Compiled stub code, and the interpreter operations (goals 1a, 2 and 4).
+- The interpreter operations (goal 2).

@@ -10,7 +10,8 @@ through `searchfox-cli`.
 
 - `js/src/jit/BaselineCacheIRCompiler.cpp`: `LookupOrCompileStub` compiles a stub's CacheIR or
   finds its code in the `JitZone`'s cache. The cache key is the kind and the CacheIR bytes, so
-  baseline stub code doesn't depend on the heap.
+  baseline stub code doesn't depend on the heap. Compile records and substitution hook in here,
+  and `compile()` notes where each op's code begins (see [substitution.md](substitution.md)).
 - `js/src/jit/BaselineIC.cpp`: the fallback stubs (`DoUnaryArithFallback`, …), where an IC's
   inputs reach its generator, and `TryAttachStub`, where the recorder hooks in (see
   [recorder.md](recorder.md)).
