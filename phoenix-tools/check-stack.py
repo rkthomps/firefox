@@ -30,6 +30,8 @@ Checks:
    - moz.build: added lines must be in an `if CONFIG["JS_PHOENIX"]:` block.
    - moz.configure: added blocks must mention phoenix, and nothing is removed.
    - Anything else is an error, except the files in ALLOWED.
+5. The worktree that has phoenix checked out (../firefox-phoenix) has no
+   uncommitted changes: it's built from, never edited.
 
 With --worktree, check 4 also covers the uncommitted changes of the current
 worktree, which must be on the dev branch. Exits 1 if a check fails.
@@ -336,6 +338,34 @@ def check_guards(reference, paths, read_new, where):
             error(f"{where}{path}: changed, and it isn't code that --enable-phoenix can guard")
 
 
+# Check 5: the reference's checkout isn't edited.
+
+
+def worktree_of(branch):
+    path = None
+    for line in git_out("worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree ") :]
+        elif line == f"branch refs/heads/{branch}":
+            return path
+    return None
+
+
+def check_reference_worktree(reference):
+    path = worktree_of(reference)
+    if path is None:
+        print(f"{reference}: not checked out in any worktree")
+        return
+    changes = git_out("-C", path, "status", "--porcelain").splitlines()
+    if changes:
+        error(
+            f"{path} ({reference}) has {len(changes)} uncommitted changes: it's built from, "
+            f"never edited (phoenix-docs/docs/branches.md)"
+        )
+    else:
+        print(f"{reference}: checked out in {path}, with no uncommitted changes")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -357,6 +387,7 @@ def main():
     print(f"{args.reference}: {len(fixes)} [BUG FIX] commits")
     for sha, subject in fixes:
         print(f"  {sha[:12]} {subject}")
+    check_reference_worktree(args.reference)
 
     if check_dev(args.reference, args.dev):
         dev_commits = git_out("rev-list", "--count", f"{args.reference}..{args.dev}").strip()
