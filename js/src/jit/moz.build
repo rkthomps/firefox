@@ -314,7 +314,10 @@ if CONFIG["ENABLE_JS_AOT_ICS"]:
     )
 
 if CONFIG["JS_PHOENIX"]:
-    SOURCES += ["PhoenixRecorder.cpp"]
+    SOURCES += [
+        "PhoenixRecorder.cpp",
+        "PhoenixStubCode.cpp",
+    ]
 
 if CONFIG["FUZZING_INTERFACES"] or CONFIG["FUZZING_JS_FUZZILLI"]:
     include("/tools/fuzzing/libfuzzer-config.mozbuild")

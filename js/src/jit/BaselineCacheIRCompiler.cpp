@@ -241,6 +241,9 @@ JitCode* BaselineCacheIRCompiler::compile() {
   do {
     CacheOp op = reader.readOp();
     perfSpewer_.recordInstruction(masm, op);
+#ifdef JS_PHOENIX
+    phoenixInfo_.addOp(op, masm.currentOffset());
+#endif
     switch (op) {
 #define DEFINE_OP(op, ...)                 \
   case CacheOp::op:                        \
@@ -256,6 +259,9 @@ JitCode* BaselineCacheIRCompiler::compile() {
   } while (reader.more());
 
   MOZ_ASSERT(!enteredStubFrame_);
+#ifdef JS_PHOENIX
+  phoenixInfo_.returnOffset = masm.currentOffset();
+#endif
   allocator.discardStack(masm);
   if (JitOptions.enableICFramePointers) {
     PopICFrameRegs(masm);
@@ -264,6 +270,9 @@ JitCode* BaselineCacheIRCompiler::compile() {
 
   // Done emitting the main IC code. Now emit the failure paths.
   perfSpewer_.recordOffset(masm, "FailurePath");
+#ifdef JS_PHOENIX
+  phoenixInfo_.failurePathsOffset = masm.currentOffset();
+#endif
 
   for (size_t i = 0; i < failurePaths.length(); i++) {
     if (!emitFailurePath(i)) {
@@ -2085,6 +2094,11 @@ static bool LookupOrCompileStub(JSContext* cx, CacheKind kind,
     if (!code) {
       return false;
     }
+#ifdef JS_PHOENIX
+    if (!phoenix::OnBaselineStubCompiled(cx, kind, writer, name, comp, code)) {
+      return false;
+    }
+#endif
 
     comp.perfSpewer().saveProfile(code, name);
 

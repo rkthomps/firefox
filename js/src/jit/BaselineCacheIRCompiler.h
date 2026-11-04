@@ -16,6 +16,9 @@
 #include "jit/CacheIRCompiler.h"
 #include "jit/CacheIROpsGenerated.h"
 #include "jit/CacheIRReader.h"
+#ifdef JS_PHOENIX
+#  include "jit/PhoenixStubCode.h"
+#endif
 
 struct JS_PUBLIC_API JSContext;
 
@@ -70,6 +73,9 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
   bool makesGCCalls_;
   uint8_t localTracingSlots_ = 0;
   Register baselineFrameReg_ = FramePointer;
+#ifdef JS_PHOENIX
+  phoenix::StubCodeInfo phoenixInfo_;
+#endif
 
   mozilla::Maybe<CreateThisData> createThisData_;
 
@@ -184,6 +190,12 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
 
   bool makesGCCalls() const;
   bool localTracingSlots() const { return localTracingSlots_; }
+#ifdef JS_PHOENIX
+  const phoenix::StubCodeInfo& phoenixInfo() const { return phoenixInfo_; }
+  size_t phoenixRelocationBytes() const {
+    return masm.jumpRelocationTableBytes() + masm.dataRelocationTableBytes();
+  }
+#endif
 
   Address stubAddress(uint32_t offset) const;
 

@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "jit/CacheIRSpewer.h"
+#include "jit/JitCode.h"
+#include "jit/JitOptions.h"
 #include "js/ColumnNumber.h"
 #include "util/GetPidProvider.h"
 #include "vm/BytecodeUtil.h"
@@ -21,18 +23,24 @@ using namespace js;
 using namespace js::jit;
 using namespace js::jit::phoenix;
 
-static constexpr size_t NumCacheKinds = 0
-#define COUNT_KIND(kind) +1
-    CACHE_IR_KINDS(COUNT_KIND)
-#undef COUNT_KIND
-    ;
+// The version of the record format, in every record's "v".
+static constexpr int RecordVersion = 2;
+
+static void WriteJSONString(GenericPrinter& out, const char* s) {
+  JSONEscape esc;
+  EscapePrinter<GenericPrinter, JSONEscape> escaped(out, esc);
+  out.putChar('"');
+  escaped.put(s);
+  out.putChar('"');
+}
 
 // The first line of each record file: the process's command line, which tells
-// which test the records came from.
+// which test the records came from, the JIT options that change the code of
+// stubs, and the replay table.
 static void WriteProcessRecord(FILE* file) {
   Fprinter out(file);
-  out.printf("{\"v\":1,\"record\":\"process\",\"pid\":%d,\"argv\":[",
-             int(getpid()));
+  out.printf("{\"v\":%d,\"record\":\"process\",\"pid\":%d,\"argv\":[",
+             RecordVersion, int(getpid()));
   if (FILE* cmdline = fopen("/proc/self/cmdline", "r")) {
     JSONEscape esc;
     bool first = true;
@@ -57,7 +65,23 @@ static void WriteProcessRecord(FILE* file) {
     }
     fclose(cmdline);
   }
-  out.put("]}\n");
+  out.printf(
+      "],\"jitOptions\":{\"icFramePointers\":%s,\"spectreIndexMasking\":%s,"
+      "\"spectreObjectMitigations\":%s,\"spectreStringMitigations\":%s,"
+      "\"spectreValueMasking\":%s,\"spectreJitToCxxCalls\":%s},\"replay\":",
+      JitOptions.enableICFramePointers ? "true" : "false",
+      JitOptions.spectreIndexMasking ? "true" : "false",
+      JitOptions.spectreObjectMitigations ? "true" : "false",
+      JitOptions.spectreStringMitigations ? "true" : "false",
+      JitOptions.spectreValueMasking ? "true" : "false",
+      JitOptions.spectreJitToCxxCalls ? "true" : "false");
+  const char* replay = getenv("PHOENIX_REPLAY");
+  if (replay && *replay) {
+    WriteJSONString(out, replay);
+  } else {
+    out.put("null");
+  }
+  out.put("}\n");
   out.flush();
 }
 
@@ -194,139 +218,199 @@ static const char* ValueTypeName(JS::ValueType type) {
   MOZ_CRASH("Unknown JS::ValueType");
 }
 
-GeneratorRecord::GeneratorRecord(JSScript* script, jsbytecode* pc,
-                                 CacheKind kind, const ICState& state)
-    : kind_(kind),
-      file_(GetRecorder().file),
+static void WriteHex(JSONPrinter& json, const char* name, const uint8_t* start,
+                     size_t length) {
+  GenericPrinter& p = json.beginStringProperty(name);
+  for (size_t i = 0; i < length; i++) {
+    p.printf("%02x", start[i]);
+  }
+  json.endStringProperty();
+}
+
+// The "cacheir" property: |writer|'s CacheIR as AOT text and as bytes, and with
+// |withStubFields|, its stub fields' values.
+static void WriteCacheIR(JSONPrinter& json, CacheKind kind,
+                         const CacheIRWriter& writer, bool withStubFields) {
+  if (writer.failed() || writer.codeLength() == 0) {
+    json.nullProperty("cacheir");
+    return;
+  }
+
+  json.beginObjectProperty("cacheir");
+  {
+    GenericPrinter& p = json.beginStringProperty("aot");
+    AOTEscape esc;
+    EscapePrinter<GenericPrinter, AOTEscape> escaped(p, esc);
+    SpewCacheIROpsAsAOT(escaped, kind, writer);
+    json.endStringProperty();
+  }
+  WriteHex(json, "bytes", writer.codeStart(), writer.codeLength());
+  if (withStubFields) {
+    json.beginListProperty("stubFields");
+    for (size_t i = 0; i < writer.numStubFields(); i++) {
+      const StubField& field = writer.stubField(i);
+      json.beginObject();
+      json.property("type", StubFieldTypeName(field.type()));
+      json.formatProperty("value", "0x%016" PRIx64, field.rawData());
+      json.endObject();
+    }
+    json.endList();
+  }
+  json.endObject();
+}
+
+RecordLine::RecordLine(const char* record, CacheKind kind)
+    : file_(GetRecorder().file),
       out_(file_),
       json_(out_, /* indent = */ false) {
   MOZ_ASSERT(file_);
   flockfile(file_);
 
   json_.beginObject();
-  json_.property("v", 1);
-  json_.property("record", "generator");
+  json_.property("v", RecordVersion);
+  json_.property("record", record);
   json_.property("pid", int32_t(getpid()));
   json_.property("kind", CacheKindNames[size_t(kind)]);
-
-  json_.beginObjectProperty("loc");
-  {
-    const char* filename = script->filename();
-    GenericPrinter& p = json_.beginStringProperty("file");
-    JSONEscape esc;
-    EscapePrinter<GenericPrinter, JSONEscape> escaped(p, esc);
-    escaped.put(filename ? filename : "");
-    json_.endStringProperty();
-  }
-  JS::LimitedColumnNumberOneOrigin column;
-  unsigned line = PCToLineNumber(script, pc, &column);
-  json_.property("line", uint32_t(line));
-  json_.property("column", column.oneOriginValue());
-  json_.property("pcOffset", uint32_t(script->pcToOffset(pc)));
-  json_.property("op", CodeName(JSOp(*pc)));
-  json_.endObject();
-
-  json_.beginObjectProperty("state");
-  json_.property("mode", ModeName(state.mode()));
-  json_.boolProperty("isFirstStub", state.newStubIsFirstStub());
-  json_.property("numOptimizedStubs", uint32_t(state.numOptimizedStubs()));
-  json_.endObject();
 }
 
-GeneratorRecord::~GeneratorRecord() {
+RecordLine::~RecordLine() {
   json_.endObject();
   out_.put("\n");
   out_.flush();
   funlockfile(file_);
 }
 
-void GeneratorRecord::beginArgs() { json_.beginListProperty("args"); }
+GeneratorRecord::GeneratorRecord(JSScript* script, jsbytecode* pc,
+                                 CacheKind kind, const ICState& state)
+    : kind_(kind), line_("generator", kind) {
+  JSONPrinter& json = line_.json();
+  json.beginObjectProperty("loc");
+  {
+    const char* filename = script->filename();
+    GenericPrinter& p = json.beginStringProperty("file");
+    JSONEscape esc;
+    EscapePrinter<GenericPrinter, JSONEscape> escaped(p, esc);
+    escaped.put(filename ? filename : "");
+    json.endStringProperty();
+  }
+  JS::LimitedColumnNumberOneOrigin column;
+  unsigned line = PCToLineNumber(script, pc, &column);
+  json.property("line", uint32_t(line));
+  json.property("column", column.oneOriginValue());
+  json.property("pcOffset", uint32_t(script->pcToOffset(pc)));
+  json.property("op", CodeName(JSOp(*pc)));
+  json.endObject();
 
-void GeneratorRecord::endArgs() { json_.endList(); }
+  json.beginObjectProperty("state");
+  json.property("mode", ModeName(state.mode()));
+  json.boolProperty("isFirstStub", state.newStubIsFirstStub());
+  json.property("numOptimizedStubs", uint32_t(state.numOptimizedStubs()));
+  json.endObject();
+}
+
+void GeneratorRecord::beginArgs() { line_.json().beginListProperty("args"); }
+
+void GeneratorRecord::endArgs() { line_.json().endList(); }
 
 void GeneratorRecord::jsopArg(JSOp op) {
-  json_.beginObject();
-  json_.property("type", "JSOp");
-  json_.property("name", CodeName(op));
-  json_.property("byte", uint32_t(op));
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "JSOp");
+  json.property("name", CodeName(op));
+  json.property("byte", uint32_t(op));
+  json.endObject();
 }
 
 void GeneratorRecord::cacheKindArg(CacheKind kind) {
-  json_.beginObject();
-  json_.property("type", "CacheKind");
-  json_.property("name", CacheKindNames[size_t(kind)]);
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "CacheKind");
+  json.property("name", CacheKindNames[size_t(kind)]);
+  json.endObject();
 }
 
 void GeneratorRecord::valueArg(const JS::Value& v) {
-  json_.beginObject();
-  json_.property("type", "Value");
-  json_.formatProperty("bits", "0x%016" PRIx64, v.asRawBits());
-  json_.property("tag", ValueTypeName(v.type()));
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "Value");
+  json.formatProperty("bits", "0x%016" PRIx64, v.asRawBits());
+  json.property("tag", ValueTypeName(v.type()));
+  json.endObject();
 }
 
 void GeneratorRecord::boolArg(bool b) {
-  json_.beginObject();
-  json_.property("type", "bool");
-  json_.boolProperty("value", b);
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "bool");
+  json.boolProperty("value", b);
+  json.endObject();
 }
 
 void GeneratorRecord::intArg(int64_t i) {
-  json_.beginObject();
-  json_.property("type", "int");
-  json_.property("value", i);
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "int");
+  json.property("value", i);
+  json.endObject();
 }
 
 void GeneratorRecord::unrecordedArg() {
-  json_.beginObject();
-  json_.property("type", "unrecorded");
-  json_.endObject();
+  JSONPrinter& json = line_.json();
+  json.beginObject();
+  json.property("type", "unrecorded");
+  json.endObject();
 }
 
 void GeneratorRecord::outcome(AttachDecision decision, bool attached,
                               const char* stubName,
                               const CacheIRWriter& writer) {
-  json_.property("decision", DecisionName(decision));
-  json_.boolProperty("attached", attached);
+  JSONPrinter& json = line_.json();
+  json.property("decision", DecisionName(decision));
+  json.boolProperty("attached", attached);
   if (stubName) {
-    json_.property("stubName", stubName);
+    json.property("stubName", stubName);
   } else {
-    json_.nullProperty("stubName");
+    json.nullProperty("stubName");
   }
+  json.boolProperty("writerFailed", writer.failed());
+  WriteCacheIR(json, kind_, writer, /* withStubFields = */ true);
+}
 
-  json_.boolProperty("writerFailed", writer.failed());
-  if (writer.failed() || writer.codeLength() == 0) {
-    json_.nullProperty("cacheir");
-    return;
+void phoenix::RecordCompile(CacheKind kind, const char* stubName,
+                            const CacheIRWriter& writer,
+                            const StubCodeInfo& info, size_t relocationBytes,
+                            bool makesGCCalls, JitCode* code,
+                            const char* replay) {
+  RecordLine line("compile", kind);
+  JSONPrinter& json = line.json();
+  if (stubName) {
+    json.property("stubName", stubName);
+  } else {
+    json.nullProperty("stubName");
   }
+  WriteCacheIR(json, kind, writer, /* withStubFields = */ false);
 
-  json_.beginObjectProperty("cacheir");
-  {
-    GenericPrinter& p = json_.beginStringProperty("aot");
-    AOTEscape esc;
-    EscapePrinter<GenericPrinter, AOTEscape> escaped(p, esc);
-    SpewCacheIROpsAsAOT(escaped, kind_, writer);
-    json_.endStringProperty();
+  json.beginObjectProperty("code");
+  WriteHex(json, "bytes", code->raw(), code->instructionsSize());
+  json.beginListProperty("ops");
+  for (size_t i = 0; i < info.numOps; i++) {
+    json.beginObject();
+    json.property("op", CacheIRCodeName(info.ops[i].op));
+    json.property("offset", info.ops[i].offset);
+    json.endObject();
   }
-  {
-    GenericPrinter& p = json_.beginStringProperty("bytes");
-    for (const uint8_t* b = writer.codeStart(); b != writer.codeEnd(); b++) {
-      p.printf("%02x", *b);
-    }
-    json_.endStringProperty();
+  json.endList();
+  json.boolProperty("tooManyOps", info.tooManyOps);
+  json.property("returnOffset", info.returnOffset);
+  json.property("failurePathsOffset", info.failurePathsOffset);
+  json.property("relocationBytes", uint64_t(relocationBytes));
+  json.property("localTracingSlots", uint32_t(code->localTracingSlots()));
+  json.boolProperty("makesGCCalls", makesGCCalls);
+  json.endObject();
+
+  if (replay) {
+    json.property("replay", replay);
+  } else {
+    json.nullProperty("replay");
   }
-  json_.beginListProperty("stubFields");
-  for (size_t i = 0; i < writer.numStubFields(); i++) {
-    const StubField& field = writer.stubField(i);
-    json_.beginObject();
-    json_.property("type", StubFieldTypeName(field.type()));
-    json_.formatProperty("value", "0x%016" PRIx64, field.rawData());
-    json_.endObject();
-  }
-  json_.endList();
-  json_.endObject();
 }

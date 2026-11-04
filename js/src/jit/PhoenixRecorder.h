@@ -15,6 +15,7 @@
 #  include "jit/CacheIRGenerator.h"
 #  include "jit/CacheIRWriter.h"
 #  include "jit/ICState.h"
+#  include "jit/PhoenixStubCode.h"
 #  include "js/Printer.h"
 #  include "js/TypeDecls.h"
 #  include "js/Value.h"
@@ -33,14 +34,26 @@ namespace phoenix {
 
 bool ShouldRecord(CacheKind kind);
 
-// One run of a generator, written as one JSON line. The record file is locked
-// from construction to destruction, so records from different threads don't
-// interleave.
-class MOZ_RAII GeneratorRecord {
-  CacheKind kind_;
+// One record, written as one JSON line: its version, its type (|record|), the
+// process and the CacheKind, then whatever the caller adds through json(). The
+// record file is locked from construction to destruction, so records from
+// different threads don't interleave.
+class MOZ_RAII RecordLine {
   FILE* file_;
   Fprinter out_;
   JSONPrinter json_;
+
+ public:
+  RecordLine(const char* record, CacheKind kind);
+  ~RecordLine();
+
+  JSONPrinter& json() { return json_; }
+};
+
+// One run of a generator.
+class MOZ_RAII GeneratorRecord {
+  CacheKind kind_;
+  RecordLine line_;
 
   void jsopArg(JSOp op);
   void cacheKindArg(CacheKind kind);
@@ -53,7 +66,6 @@ class MOZ_RAII GeneratorRecord {
   // |state| is the IC's state as the generator was constructed with it.
   GeneratorRecord(JSScript* script, jsbytecode* pc, CacheKind kind,
                   const ICState& state);
-  ~GeneratorRecord();
 
   void beginArgs();
   void endArgs();
@@ -105,6 +117,15 @@ void RecordGenerator(JSScript* script, jsbytecode* pc, const ICState& state,
   record.endArgs();
   record.outcome(decision, attached, gen.stubName(), gen.writerRef());
 }
+
+// Records the compilation of |writer| to |code| by the baseline CacheIR
+// compiler. |relocationBytes| is the size of |code|'s relocation tables, and
+// |replay| what the replay table did with it: nullptr without a table, or
+// "substituted", "notInTable" or "refused".
+void RecordCompile(CacheKind kind, const char* stubName,
+                   const CacheIRWriter& writer, const StubCodeInfo& info,
+                   size_t relocationBytes, bool makesGCCalls, JitCode* code,
+                   const char* replay);
 
 }  // namespace phoenix
 }  // namespace jit
