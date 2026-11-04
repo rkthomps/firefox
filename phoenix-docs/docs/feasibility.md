@@ -403,12 +403,14 @@ start at any time.
 - **Coverage is small:** 2 of 468 CacheIR ops. For now, nearly every stub in a test run is C++'s.
   The infrastructure pays off as ops are translated, and the coverage number makes that visible.
   Prioritizing ops by how often the corpus uses them is one way to choose what to translate next.
-- **Two corpus bugs, fixed on `phoenix`** by `[BUG FIX]` commits, with reproductions in
+- **Three corpus bugs, fixed on `phoenix`** by `[BUG FIX]` commits, with reproductions in
   [bug-fixes/](../bug-fixes/). In the AOT serializer, `spewTypeofEqOperandImm` passes the argument's
   name as the format string, so `LoadTypeOfEqObjectResult` is written wrong (latent upstream:
-  PBL's hybrid ICs never attach that stub). And `ArrayBufferViewKindName` doesn't handle
-  `ArrayBufferViewKind::Immutable`, so serializing an op with that kind hits `MOZ_CRASH`. Both
-  are still on upstream `main`, which makes them good first bugs to file.
+  PBL's hybrid ICs never attach that stub). `ArrayBufferViewKindName` doesn't handle
+  `ArrayBufferViewKind::Immutable`, so serializing an op with that kind hits `MOZ_CRASH`. And
+  `CacheIRWriter::operandLastUsed` reads past the end of its vector for an input operand no
+  instruction uses, which crashes on a `for-of` over an array (found 2026-11-04). All three are
+  still on upstream `main`, which makes them good first bugs to file.
 - **The AOT serializer's guard is widened on `phoenix-dev`** to `ENABLE_JS_AOT_ICS ||
   JS_PHOENIX`. The block compiles without the rest of the AOT code.
 - **Lean evaluation speed:** the model's memory is a function, which is fine for stubs but may be

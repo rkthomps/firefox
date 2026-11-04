@@ -76,8 +76,11 @@ From `../firefox-phoenix-dev`:
    other worktrees and sessions.
 4. Run `check-stack.py --worktree`.
 
-The report's reproduction needs a build without Phoenix: run it in `../firefox-phoenix`, before
-step 2 for the output without the fix, and after it, rebuilt, for the output with the fix.
+The report's reproduction needs builds without Phoenix, and its outputs go in the fix's commit,
+so get them before step 1. For the output without the fix, run it in `../firefox-phoenix`. For
+the output with it, build in `../firefox-phoenix-dev` without `--enable-phoenix`, which compiles
+`phoenix`'s code plus the uncommitted fix. After step 3, rebuild the objdirs in
+`../firefox-phoenix`.
 
 ## Moving to a new upstream pin
 

@@ -2,22 +2,6 @@
 
 Work deferred for later. Remove an item when it's done.
 
-## The AOT spewer crashes on operands no op reads
-
-Found on 2026-11-03, deferred. With every kind recorded (`PHOENIX_RECORD` without
-`PHOENIX_RECORD_KINDS`), the shell hits `MOZ_CRASH(ElementAt(aIndex = 0, aLength = 0))` at the
-first compiled `Call` stub (`NewArrayIterator`, in `phoenix-tools/tests/bitnot.js`). Compile
-records call `SpewCacheIROpsAsAOT`, which prints `writer.operandLastUsed(i)` for every
-`i < numOperandIds()`. But `CacheIRWriter::operandLastUsed_` only grows when an op reads an
-operand (`writeOperandId`), so an operand no op reads, such as a `Call` stub's `argc`, is past its
-end. Runs limited to `UnaryArith` are unaffected.
-
-It's upstream's bug, latent there for the same reason as
-[bug-fixes/0001](bug-fixes/0001-aot-spewer-typeofeq-operand.md), probably. Fix it as a
-`[BUG FIX]`, with a report and a PBL reproduction. First decide what to print for an operand that's
-never read, so that the AOT loader (`CacheIRAOT.cpp`) rebuilds an equivalent writer: there,
-`operandIsDead` must stay false for it.
-
 ## Branches: follow-ups
 
 The branch structure is in place (see [docs/branches.md](docs/branches.md)). Left to do:
