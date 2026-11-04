@@ -15,8 +15,8 @@ This directory documents the infrastructure on `phoenix-dev` that tests the Lean
   - [recorder.md](docs/recorder.md): how the recorder works, and its record format;
   - [substitution.md](docs/substitution.md): replacing stub code with Lean's, the replay table's
     format, and what the Lean driver has to produce;
-  - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, how to add a bug
-    fix, and how to move to a new pin;
+  - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, the reference
+    checkout, how to add a bug fix, and how to move to a new pin;
   - [spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into, the
     builds, and their pitfalls.
 

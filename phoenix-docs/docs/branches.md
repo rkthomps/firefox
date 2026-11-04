@@ -20,12 +20,29 @@ upstream ──● pin (tag phoenix-pin/<sha>)
   `../icarus/crates/phoenix/build.rs`), so the model is translated from the unpatched pin.
 - **`phoenix`** (checked out in `../firefox-phoenix`) is the pin plus `[BUG FIX]` commits and
   nothing else. It only ever gains commits by fast-forward, except when the pin moves.
-- **`phoenix-dev`** (this worktree) is `phoenix` plus the instrumentation, tools and docs. It's
-  always rebased onto `phoenix`, and has no `[BUG FIX]` commits of its own.
+- **`phoenix-dev`** (checked out in `../firefox-phoenix-dev`) is `phoenix` plus the
+  instrumentation, tools and docs. It's always rebased onto `phoenix`, and has no `[BUG FIX]`
+  commits of its own. All the work happens here.
 
 So the bug fixes can always be taken on their own: cherry-picked onto upstream, or replayed onto
 a new pin, without the instrumentation. And the instrumentation is a small set of commits to
 rebase.
+
+## The reference checkout
+
+`../firefox-phoenix` has `phoenix`'s sources, line for line, so it's where the reference is built
+and indexed:
+
+- the shells without Phoenix that the bug-fix reports reproduce on (see
+  [spidermonkey.md](spidermonkey.md));
+- the USR index that `cachet-lean`'s annotations will be checked against (see
+  [TODO.md](../TODO.md)). It indexes this checkout, not `phoenix-dev`'s, whose hooks move the
+  lines of the files they're in.
+
+Build there, but never edit there. Building only writes gitignored files (objdirs, mozconfigs,
+`artifacts/`), and its sources change only when `phoenix` gains a fix or the pin moves. Either
+rewrites files there, so don't do it while a build runs in that checkout (see "Pitfalls" in
+[spidermonkey.md](spidermonkey.md)).
 
 ## Checking it
 
@@ -37,14 +54,15 @@ rebase.
    `phoenix-tools/repro/`;
 3. `phoenix` is an ancestor of `phoenix-dev`, and no commit above it is a `[BUG FIX]`;
 4. every change from `phoenix` to `phoenix-dev` to Firefox's files is guarded by `JS_PHOENIX`.
-   With `--worktree`, this includes the uncommitted changes.
+   With `--worktree`, this includes the uncommitted changes;
+5. `../firefox-phoenix` has no uncommitted changes.
 
 Check 4 reads the text of the changes, so it's a heuristic; the script's docstring says what it
 accepts. Run it before committing and after every rebase.
 
 ## Adding a bug fix
 
-From this worktree:
+From `../firefox-phoenix-dev`:
 
 1. Commit the fix on `phoenix-dev`, alone, with its report (see "Changes to Firefox" in
    [CLAUDE.md](../CLAUDE.md)). Stage only the fix's hunks (e.g. `git apply --cached` with a
@@ -58,6 +76,9 @@ From this worktree:
    other worktrees and sessions.
 4. Run `check-stack.py --worktree`.
 
+The report's reproduction needs a build without Phoenix: run it in `../firefox-phoenix`, before
+step 2 for the output without the fix, and after it, rebuilt, for the output with the fix.
+
 ## Moving to a new upstream pin
 
 `cachet-lean` has to translate the new pin too, so move the pin together with it.
@@ -68,6 +89,6 @@ From this worktree:
 2. In `../firefox-phoenix`, `git rebase --onto <new-pin> phoenix-pin/<old-pin> phoenix`. Drop the
    fixes upstream has made already; each report says how to check. Update the others' upstream
    status, and rerun their reproductions on the new pin.
-3. Here, `git rebase --onto phoenix phoenix-final/<old-pin> phoenix-dev`, rebuild, and rerun the
-   recordings.
+3. In `../firefox-phoenix-dev`, `git rebase --onto phoenix phoenix-final/<old-pin> phoenix-dev`,
+   rebuild, and rerun the recordings. Rebuild the objdirs in `../firefox-phoenix` too.
 4. Update `MOZ_CENTRAL_REV` in icarus, and run `check-stack.py --worktree`.

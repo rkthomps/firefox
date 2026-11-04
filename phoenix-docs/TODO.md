@@ -16,6 +16,25 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
 - The branches and the pin tag are only local. Decide whether to push them to `origin`. Rebasing
   `phoenix-dev` means force-pushing it.
 
+## A USR index for `cachet-lean`'s annotations
+
+`cachet-lean` will annotate each Lean function with the clang USR and the `file:line` of the C++
+function it translates, to be checked against an index of SpiderMonkey's sources. Build the index
+from the reference checkout, `../firefox-phoenix`, whose sources are `phoenix`'s line for line
+(see [docs/branches.md](docs/branches.md)), with a script in `phoenix-tools/`. It will use libclang
+from `~/.mozbuild/clang`, over a `compile_commands.json` that `./mach build-backend -b CompileDB`
+writes from a gitignored mozconfig. It will also need a 32-bit ARM-simulator configuration
+(`--enable-simulator=arm`) for `js/src/jit/arm/`. Design it with `cachet-lean`.
+
+`../icarus/crates/phoenix` already does most of this, for the stub generators:
+
+- `build.rs` makes the compile database of a JS-shell-only debug build without compiling
+  anything: `mach configure`, then `mach build pre-export export` for the generated headers, then
+  `mach build-backend -b CompileDB`;
+- `src/clang_utils.rs` parses a file through libclang (the `clang` crate) with its flags from the
+  compile database;
+- `src/cpp_subset.rs` identifies C++ functions by their USR.
+
 ## Distinct counts in the corpus summary
 
 `corpus.py dedupe`'s summary gives, per kind, stub name and input types, only how many records

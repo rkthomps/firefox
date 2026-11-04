@@ -38,8 +38,9 @@ model against the real SpiderMonkey.
 - `../firefox`: tracks upstream `main`. Don't develop here.
 - The **pin**, `f35f2f1f3ae8`, tagged `phoenix-pin/f35f2f1f3ae8`: the upstream commit
   `cachet-lean` translates.
-- `../firefox-phoenix`: branch `phoenix`, the pin plus `[BUG FIX]` commits and nothing else.
-  Don't work in this checkout: make fixes in `phoenix-dev` and move them.
+- `../firefox-phoenix`: branch `phoenix`, the pin plus `[BUG FIX]` commits and nothing else. It's
+  the reference checkout: build there (shells without Phoenix, the USR index), but never edit
+  there. Make fixes in `phoenix-dev` and move them.
 - `../firefox-phoenix-dev` (this worktree): branch `phoenix-dev`, `phoenix` plus the
   instrumentation, tools and docs, always rebased onto `phoenix`. All infrastructure goes here.
 - `../cachet-lean`: the model. It has its own `CLAUDE.md` with stricter rules: discuss a design
@@ -60,8 +61,9 @@ model against the real SpiderMonkey.
 - **Read SpiderMonkey's code locally**, restricted to `js/src/jit` or another narrow directory:
   the tree is pinned and older than Searchfox's index.
 - **Build in the right objdir.** The JS shell with the recorder is `obj-js-x64`
-  (`MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build`). The browser objdir has no shell. All the
-  objdirs are in [docs/spidermonkey.md](docs/spidermonkey.md).
+  (`MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build`). Shells without Phoenix are built in
+  `../firefox-phoenix`. The browser objdir has no shell. All the objdirs, and which checkout
+  has each, are in [docs/spidermonkey.md](docs/spidermonkey.md).
 - **Don't edit a source file while a build is running**: later builds can silently keep the old
   code (see "Pitfalls" in [docs/spidermonkey.md](docs/spidermonkey.md)).
 - **Run `phoenix-tools/check-stack.py --worktree`** before committing and after every rebase.
