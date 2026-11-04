@@ -58,3 +58,10 @@ Substitute mode is built ([docs/substitution.md](docs/substitution.md)). Left to
 - **Check that substituted code runs**, not only that it's compiled. `corpus.py replay` counts
   compilations; a stub that's attached but never entered again tests nothing. Reading the
   stubs' `enteredCount_` would tell.
+
+## Provenance of recorded runs (low priority)
+
+A run's `rev.txt` names the `phoenix-dev` commit it was recorded on, but rebasing `phoenix-dev`
+(after a bug fix moves to `phoenix`, or when the pin moves) gives every commit a new ID, so older
+runs name commits that are no longer on the branch. For now, re-run what's still needed after a
+rebase. Deferred on 2026-11-04.
