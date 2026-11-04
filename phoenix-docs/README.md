@@ -13,12 +13,15 @@ This directory documents the infrastructure on `phoenix-dev` that tests the Lean
   - [feasibility.md](docs/feasibility.md): how feasible each goal is, the plan, and where it
     stands;
   - [recorder.md](docs/recorder.md): how the recorder works, and its record format;
+  - [substitution.md](docs/substitution.md): replacing stub code with Lean's, the replay table's
+    format, and what the Lean driver has to produce;
   - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, how to add a bug
     fix, and how to move to a new pin;
   - [spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into, the
     builds, and their pitfalls.
 
-The rest of this file is how to record what SpiderMonkey's IC stub generators do.
+The rest of this file is how to record what SpiderMonkey's IC stub generators and compiler do,
+and how to run the tests on replacement stub code.
 
 ## Building the recorder
 
@@ -36,7 +39,7 @@ The shell is `obj-js-x64/dist/bin/js`. `record-jit-tests.sh` (below) builds it f
 ## Recording jit-tests
 
 ```
-phoenix-tools/record-jit-tests.sh [--no-build] LABEL [KINDS] [-- JIT_TEST_ARGS...]
+phoenix-tools/record-jit-tests.sh [--no-build] [--replay TABLE] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 ```
 
 - `LABEL` names the run, which goes in `../phoenix-runs/<date>-LABEL`. Set `PHOENIX_RUNS` to put
@@ -46,6 +49,8 @@ phoenix-tools/record-jit-tests.sh [--no-build] LABEL [KINDS] [-- JIT_TEST_ARGS..
 - Arguments after `--` go to `jit_test.py`, e.g. test paths to run only those tests.
 - `--no-build` skips building `obj-js-x64`. Building is the default: when nothing has changed it
   takes about a second, and it guards against recording with a stale shell.
+- `--replay TABLE` runs the tests with the stub code in `TABLE` (see "Running on replacement stub
+  code" below).
 
 For example:
 
@@ -117,4 +122,30 @@ To look at individual records, use `jq`, e.g.:
 jq -c 'select(.record=="generator") | [.args[1].tag, .stubName, .cacheir.aot]' RUN/records/*.jsonl
 ```
 
-What each field means is in [docs/recorder.md](docs/recorder.md).
+Generator records are the IC generators' runs, and compile records the compiler's code for each
+CacheIR. What each field means is in [docs/recorder.md](docs/recorder.md).
+
+## Running on replacement stub code
+
+A replay table maps a kind and CacheIR to the machine code to use in place of SpiderMonkey's. The
+Lean driver will write them; its format is in [docs/substitution.md](docs/substitution.md).
+
+```
+phoenix-tools/record-jit-tests.sh --replay TABLE LABEL [KINDS]
+PHOENIX_REPLAY=TABLE obj-js-x64/dist/bin/js --no-ion --baseline-eager SCRIPT.js
+```
+
+- With `record-jit-tests.sh`, the table is copied into the run, and the run ends with a summary
+  of what it replaced: `python3 phoenix-tools/corpus.py replay RUN/records`.
+- With `PHOENIX_RECORD` set too, each compile record says whether its code was `substituted`,
+  `notInTable` or `refused` (C++'s code needed relocations).
+- A table that can't be read or parsed crashes the shell at the first stub compiled, with the
+  file and line.
+
+To test the mechanism, `phoenix-tools/replay-table.py` writes a table of SpiderMonkey's own code
+from a run's compile records. Replaying it must change nothing. Restrict it to stubs that embed
+no addresses of the process that compiled them, e.g. the int32 `~` stub:
+
+```
+python3 phoenix-tools/replay-table.py RUN/records --cacheir 0b00006c0100 > bitnot.table
+```

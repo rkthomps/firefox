@@ -105,9 +105,9 @@ Read at the pinned commit:
   (`CACHEIR_LOGS=<file>`). For `UnaryArith` that's `val` and `res`. But doubles are printed to three
   decimals and objects are summarized, so it shows where to hook, not what to record.
 - **Raw code in, code out.** `MacroAssemblerX86Shared::appendRawCode` appends bytes to an assembler
-  buffer, and `Linker::newCode` turns the buffer into `JitCode`. ARM's buffer
-  (`IonAssemblerBufferWithConstantPools`) has `appendRawCode`, but ARM's `Assembler` doesn't
-  forward it yet. That's a one-line wrapper.
+  buffer, and `Linker::newCode` turns the buffer into `JitCode`. ARM's `Assembler::appendRawCode`
+  flushes the constant pool and forwards to its buffer (`IonAssemblerBufferWithConstantPools`).
+  (Corrected 2026-11-03: an earlier version said ARM's `Assembler` didn't forward it.)
 
 ## Infrastructure shared by the goals
 
@@ -119,7 +119,8 @@ Build these once. Every goal uses them.
    - in `LookupOrCompileStub`, after `comp.compile()`: the kind, the CacheIR in AOT text and as raw
      bytes, the code (`code->raw()`, `instructionsSize()`), its relocations, and the code offset at
      which each CacheIR op begins. The offsets come from a one-line hook in the compile loop. They
-     let a mismatch be blamed on one op without serializing MASM. *Not built yet.*
+     let a mismatch be blamed on one op without serializing MASM. *Built (compile records), except
+     that relocations are recorded only by size.*
    - **at every generator run, in `TryAttachStub` (built):** the generator's inputs (the
      arguments it's constructed with, `Value`s as raw bits), the IC state, its decision and stub
      name, whether the stub was attached, and the CacheIR it wrote, in AOT text and as bytes.
@@ -178,6 +179,11 @@ Build these once. Every goal uses them.
 
 Running the C++ compiler first keeps `makesGCCalls()` and `CacheIRStubInfo` exactly as they were,
 and gives compare mode for free.
+
+*Substitute mode is built (2026-11-03), with replay from a table (option 1 below); compare mode is
+deferred. How it works, the table's format, and what the Lean driver must produce are in
+[substitution.md](substitution.md). Replaying SpiderMonkey's own code for the int32 `~` stub over
+all of jit-tests changed no result, with the stub substituted in 41 tests.*
 
 **Getting Lean's code into the process**, simplest first:
 
@@ -373,12 +379,15 @@ start at any time.
 
 - **M0. Builds:** the `js-x64` objdir, and run jit-tests on it once to get a baseline. *Done.*
 - **M1. Recorder and corpus:** the stub, generator and interpreter records, plus per-op code
-  offsets. Then a corpus from jit-tests. *Generator records done, with a `UnaryArith` corpus
-  from jit-tests (see [recorder.md](recorder.md)).*
+  offsets. Then a corpus from jit-tests. *Generator and compile records done, with per-op
+  offsets, and a `UnaryArith` corpus from jit-tests (see [recorder.md](recorder.md)). Interpreter
+  records not yet.*
 - **M2. Lean driver, compiler side:** parse AOT text into `CacheOp`, compile, and compare
   instructions on x64 (goal 4). This is the first real signal, with a coverage report.
 - **M3. Substitution (goal 1a):** compare mode, then replay. Then jit-tests with `--no-ion
-  --baseline-eager`, and coverage tracked from run to run.
+  --baseline-eager`, and coverage tracked from run to run. *Replay done on the C++ side
+  ([substitution.md](substitution.md)); it waits for the Lean driver's tables. Compare mode
+  deferred.*
 - **M4. x64 hardware harness (goal 3):** per-instruction sweeps, then corpus stubs, then a decoder
   check against XED.
 - **M5. Generator and interpreter checks (goals 1b and 2):** for `UnaryArith` and `BitNot`.
