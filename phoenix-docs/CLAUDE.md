@@ -58,6 +58,13 @@ model against the real SpiderMonkey.
 
 ## Essentials
 
+- **Edit files with the Edit or Write tool**, never with shell commands (`sed`, heredocs,
+  scripts), even in auto mode, where those are allowed. This covers every file you change by
+  hand: Firefox's sources, `phoenix-tools/`, `phoenix-docs/`, and the mozconfigs. The user
+  inspects each change in the IDE panel, and edits made through the shell don't show there.
+  Moving, renaming or deleting a whole file is different: use `git mv` or `git rm` for a tracked
+  file, and `mv` or `rm` for an untracked one. Files that tools and builds write (records, logs,
+  objdirs) aren't edits.
 - **Read SpiderMonkey's code locally**, restricted to `js/src/jit` or another narrow directory:
   the tree is pinned and older than Searchfox's index.
 - **Build in the right objdir.** The JS shell with the recorder is `obj-js-x64`
