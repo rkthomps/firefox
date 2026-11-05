@@ -26,19 +26,25 @@ import collections
 import json
 import pathlib
 import sys
+from typing import Any
+
+# A record, or an entry of unique.jsonl, as parsed from JSON (phoenix-docs/docs/recorder.md).
+Record = dict[str, Any]
+# A stub's kind, its stub name and its CacheIR bytes in hex.
+StubKey = tuple[str, str, str]
 
 PER_RUN_KEYS = ("pid", "loc")
 
 
-def value_tags(record):
+def value_tags(record: Record) -> tuple[str, ...]:
     return tuple(a["tag"] for a in record["args"] if a["type"] == "Value")
 
 
-def loc_string(loc):
+def loc_string(loc: dict[str, Any]) -> str:
     return f"{loc['file']}:{loc['line']}:{loc['column']}"
 
 
-def test_of(argv):
+def test_of(argv: list[str]) -> str | None:
     if "--" in argv:
         argv = argv[: argv.index("--")]
     test = None
@@ -48,8 +54,8 @@ def test_of(argv):
     return test
 
 
-def dedupe(records_dir):
-    unique = {}
+def dedupe(records_dir: pathlib.Path) -> None:
+    unique: dict[str, Record] = {}
     total = 0
     for path in sorted(records_dir.glob("[0-9]*.jsonl")):
         test = None
@@ -83,7 +89,7 @@ def dedupe(records_dir):
             out.write(json.dumps(entry) + "\n")
 
     print(f"{total} records, {len(unique)} distinct, written to {out_path}")
-    summary = collections.Counter()
+    summary: collections.Counter[tuple[str, str, tuple[str, ...]]] = collections.Counter()
     for entry in unique.values():
         name = entry["stubName"] or f"({entry['decision']})"
         summary[(entry["kind"], name, value_tags(entry))] += entry["count"]
@@ -91,10 +97,12 @@ def dedupe(records_dir):
         print(f"{count:10}  {kind:20} {name:40} {','.join(tags)}")
 
 
-def replay(records_dir):
-    results = collections.Counter()
-    substituted = collections.Counter()
-    substituted_tests = collections.defaultdict(set)
+def replay(records_dir: pathlib.Path) -> None:
+    results: collections.Counter[str] = collections.Counter()
+    substituted: collections.Counter[StubKey] = collections.Counter()
+    substituted_tests: collections.defaultdict[StubKey, set[str | None]] = collections.defaultdict(
+        set
+    )
     for path in sorted(records_dir.glob("[0-9]*.jsonl")):
         test = None
         with path.open() as f:
@@ -122,8 +130,8 @@ def replay(records_dir):
             print(f"{count:10} {ntests:6}  {kind:12} {name:30} {cacheir}")
 
 
-def tests(records_dir, stub, tags):
-    found = set()
+def tests(records_dir: pathlib.Path, stub: str, tags: tuple[str, ...] | None) -> None:
+    found: set[str] = set()
     with (records_dir / "unique.jsonl").open() as f:
         for line in f:
             entry = json.loads(line)
@@ -136,7 +144,11 @@ def tests(records_dir, stub, tags):
         print(test)
 
 
-def main():
+def tag_list(text: str) -> tuple[str, ...]:
+    return tuple(text.split(","))
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -146,7 +158,7 @@ def main():
     p = sub.add_parser("tests")
     p.add_argument("records_dir", type=pathlib.Path)
     p.add_argument("--stub", required=True)
-    p.add_argument("--tags", type=lambda s: tuple(s.split(",")))
+    p.add_argument("--tags", type=tag_list)
     p = sub.add_parser("replay")
     p.add_argument("records_dir", type=pathlib.Path)
     args = parser.parse_args()

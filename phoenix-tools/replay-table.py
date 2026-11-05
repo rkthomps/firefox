@@ -23,7 +23,7 @@ import pathlib
 import sys
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -37,8 +37,9 @@ def main():
     )
     args = parser.parse_args()
 
-    codes = collections.defaultdict(set)
-    relocated = set()
+    # Keyed by kind and CacheIR bytes in hex.
+    codes: collections.defaultdict[tuple[str, str], set[str]] = collections.defaultdict(set)
+    relocated: set[tuple[str, str]] = set()
     for path in sorted(args.records_dir.glob("[0-9]*.jsonl")):
         with path.open() as f:
             for line in f:
