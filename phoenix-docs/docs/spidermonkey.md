@@ -41,7 +41,7 @@ checkout, `../firefox-phoenix` (see [branches.md](branches.md)), whose sources a
 |---|---|---|---|
 | `firefox-phoenix-dev` | `obj-js-x64` | `mozconfig-js-x64` | the JS shell with the recorder: jit-tests, the x64 corpus, substitution |
 | `firefox-phoenix-dev` | `obj-x86_64-pc-linux-gnu` | `mozconfig` | the browser (debug), and clangd's database. It has no JS shell: `--enable-js-shell` is on by default only for standalone JS builds |
-| `firefox-phoenix` | `obj-js-x64` | `mozconfig-js-x64`, without `--enable-phoenix` | a plain x64 shell of the reference: reproducing a JIT bug without Phoenix |
+| `firefox-phoenix` | `obj-js-x64` | `mozconfig-js-x64`, without `--enable-phoenix` | a plain x64 shell of the reference: reproducing a JIT bug without Phoenix, and the compile database of the x64 USR index ([usr-index.md](usr-index.md)) |
 | `firefox-phoenix` | `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter): reproducing the bugs in [bug-fixes/](../bug-fixes/) |
 | | `obj-js-armsim` | `mozconfig-js-armsim` | not built yet: ARM stub bytes on this machine, through SpiderMonkey's ARM simulator |
 

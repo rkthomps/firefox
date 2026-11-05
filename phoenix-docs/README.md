@@ -15,13 +15,29 @@ This directory documents the infrastructure on `phoenix-dev` that tests the Lean
   - [recorder.md](docs/recorder.md): how the recorder works, and its record format;
   - [substitution.md](docs/substitution.md): replacing stub code with Lean's, the replay table's
     format, and what the Lean driver has to produce;
+  - [usr-index.md](docs/usr-index.md): the USR index of the reference's C++ entities, for
+    `cachet-lean`'s provenance checker;
   - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, the reference
     checkout, how to add a bug fix, and how to move to a new pin;
   - [spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into, the
     builds, and their pitfalls.
 
-The rest of this file is how to record what SpiderMonkey's IC stub generators and compiler do,
-and how to run the tests on replacement stub code.
+The rest of this file is what the tools need, how to record what SpiderMonkey's IC stub
+generators and compiler do, how to run the tests on replacement stub code, and how to index the
+reference's C++.
+
+## Dependencies
+
+- **Firefox's toolchain**, from `./mach bootstrap`, in `~/.mozbuild`: the clang that builds the
+  shells, and its `libclang.so`, which the USR index uses.
+- **Python 3.10 or later**, for the tools in `phoenix-tools/`. They're scripts, run as files, and
+  use only the standard library, plus libclang's Python bindings, which are vendored in
+  `phoenix-tools/third_party/clang/` (see [docs/usr-index.md](docs/usr-index.md)).
+- **uv** (<https://docs.astral.sh/uv/>), to type-check the tools. `phoenix-tools/pyproject.toml`
+  has pyright as a dev dependency, which `uv.lock` pins. In `phoenix-tools/`, `uv run pyright`
+  makes a `.venv` (gitignored), installs pyright in it, and checks every tool in pyright's
+  standard mode. On its first run, pyright's PyPI wrapper downloads a Node.js of its own into
+  its cache (Node 26.13.0 on 2026-11-05), since Mozilla's isn't on the PATH.
 
 ## Building the recorder
 
@@ -149,3 +165,15 @@ no addresses of the process that compiled them, e.g. the int32 `~` stub:
 ```
 python3 phoenix-tools/replay-table.py RUN/records --cacheir 0b00006c0100 > bitnot.table
 ```
+
+## Indexing the reference's C++ by USR
+
+```
+(cd ../firefox-phoenix && MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build-backend -b CompileDB)
+phoenix-tools/usr-index.py
+```
+
+The first command writes the compile database of `../firefox-phoenix/obj-js-x64`. Rerun it when
+`phoenix` changes. The second parses every translation unit of that build, in about a minute, and
+writes `../phoenix-index/x64.json`, which `cachet-lean`'s checker reads. Its options, its
+dependencies and its format are in [docs/usr-index.md](docs/usr-index.md).

@@ -16,24 +16,23 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
 - The branches and the pin tag are only local. Decide whether to push them to `origin`. Rebasing
   `phoenix-dev` means force-pushing it.
 
-## A USR index for `cachet-lean`'s annotations
+## The USR index for ARM
 
-`cachet-lean` will annotate each Lean function with the clang USR and the `file:line` of the C++
-function it translates, to be checked against an index of SpiderMonkey's sources. Build the index
-from the reference checkout, `../firefox-phoenix`, whose sources are `phoenix`'s line for line
-(see [docs/branches.md](docs/branches.md)), with a script in `phoenix-tools/`. It will use libclang
-from `~/.mozbuild/clang`, over a `compile_commands.json` that `./mach build-backend -b CompileDB`
-writes from a gitignored mozconfig. It will also need a 32-bit ARM-simulator configuration
-(`--enable-simulator=arm`) for `js/src/jit/arm/`. Design it with `cachet-lean`.
+The USR index is built for x64 only, as of 2026-11-04 ([docs/usr-index.md](docs/usr-index.md)).
+ARM needs a configuration of its own, and each option has a catch:
 
-`../icarus/crates/phoenix` already does most of this, for the stub generators:
+- **The ARM simulator** (`--enable-simulator=arm`, the planned `mozconfig-js-armsim` in
+  [docs/spidermonkey.md](docs/spidermonkey.md)) compiles `js/src/jit/arm/`, but for a 32-bit x86
+  host. It defines `__i386__`, not `__arm__`, so its index misses the code under
+  `#if defined(__arm__)`, such as ARM's inline-assembly `ToSignedInteger<int32_t>`, which
+  `cachet-lean`'s `docs/arch/provenance.md` cites. A 32-bit x86 configuration hasn't been tried
+  here.
+- **A real ARM target** (`--target=arm-linux-gnueabihf`) defines `__arm__`, but configure needs
+  an ARM sysroot, and `~/.mozbuild` has only x86_64 and wasm32 ones.
 
-- `build.rs` makes the compile database of a JS-shell-only debug build without compiling
-  anything: `mach configure`, then `mach build pre-export export` for the generated headers, then
-  `mach build-backend -b CompileDB`;
-- `src/clang_utils.rs` parses a file through libclang (the `clang` crate) with its flags from the
-  compile database;
-- `src/cpp_subset.rs` identifies C++ functions by their USR.
+Either way, the index needs only a compile database, not a build: configure, then
+`./mach build pre-export export` for the generated headers, then
+`./mach build-backend -b CompileDB`, as `../icarus/crates/phoenix/build.rs` does.
 
 ## Distinct counts in the corpus summary
 
