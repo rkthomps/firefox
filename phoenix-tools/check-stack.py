@@ -43,6 +43,10 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable, Collection, Iterator
+
+# A file's lines, or None if it doesn't exist there.
+ReadFile = Callable[[str], list[str] | None]
 
 PIN_TAG_PREFIX = "phoenix-pin/"
 FIX_PREFIX = "[BUG FIX]"
@@ -57,14 +61,14 @@ ALLOWED = {
 
 DIRECTIVE_RE = re.compile(r"^\s*#\s*(\w+)\s*(.*)$")
 
-errors = []
+errors: list[str] = []
 
 
-def error(message):
+def error(message: str) -> None:
     errors.append(message)
 
 
-def git(*args, check=True):
+def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         ["git", *args], capture_output=True, text=True, check=False
     )
@@ -73,16 +77,16 @@ def git(*args, check=True):
     return result
 
 
-def git_out(*args):
+def git_out(*args: str) -> str:
     return git(*args).stdout
 
 
-def file_at(rev, path):
+def file_at(rev: str, path: str) -> list[str] | None:
     result = git("show", f"{rev}:{path}", check=False)
     return result.stdout.splitlines() if result.returncode == 0 else None
 
 
-def worktree_file(root, path):
+def worktree_file(root: str, path: str) -> list[str] | None:
     full = os.path.join(root, path)
     if not os.path.exists(full):
         return None
@@ -93,8 +97,9 @@ def worktree_file(root, path):
 # Checks 1 and 2: the reference branch.
 
 
-def check_reference(reference):
-    commits = []
+def check_reference(reference: str) -> tuple[str, list[str], list[tuple[str, str]]]:
+    """Returns the pin, its phoenix-pin/* tags, and the [BUG FIX] commits (sha, subject)."""
+    commits: list[tuple[str, str]] = []
     rev = git_out("rev-parse", reference).strip()
     while True:
         line = git_out("log", "-1", "--format=%H %P%x00%s", rev).strip()
@@ -124,12 +129,12 @@ def check_reference(reference):
     return pin, tags, commits
 
 
-def check_fix_commit(sha, subject, last):
+def check_fix_commit(sha: str, subject: str, last: int) -> int:
     """Returns the commit's report number, or |last| if it has none."""
     short = f"{sha[:12]} ({subject})"
     paths = git_out("diff-tree", "--no-commit-id", "-r", "--name-status", sha).splitlines()
-    reports = []
-    firefox = []
+    reports: list[tuple[int, str]] = []
+    firefox: list[str] = []
     for line in paths:
         status, path = line.split("\t", 1)
         match = REPORT_RE.match(path)
@@ -159,7 +164,7 @@ def check_fix_commit(sha, subject, last):
 # Check 3: the dev branch.
 
 
-def check_dev(reference, dev):
+def check_dev(reference: str, dev: str) -> bool:
     if git("merge-base", "--is-ancestor", reference, dev, check=False).returncode != 0:
         error(f"{reference} isn't an ancestor of {dev}: rebase {dev} onto {reference}")
         return False
@@ -176,12 +181,12 @@ def check_dev(reference, dev):
 # Check 4: instrumentation is guarded.
 
 
-def is_neutral(line):
+def is_neutral(line: str) -> bool:
     stripped = line.strip()
     return not stripped or stripped == "*" or stripped.startswith(("//", "/*", "* ", "*/"))
 
 
-def requires_phoenix(condition):
+def requires_phoenix(condition: str) -> bool:
     """Whether a #if condition can only hold when JS_PHOENIX is defined."""
     condition = re.sub(r"/\*.*?\*/|//.*", "", condition).strip()
     if "||" in condition or "!" in condition:
@@ -189,11 +194,11 @@ def requires_phoenix(condition):
     return bool(re.search(r"\bdefined\s*\(?\s*JS_PHOENIX\b", condition))
 
 
-def guard_map(lines):
+def guard_map(lines: list[str]) -> list[tuple[bool, bool, bool, bool]]:
     """For each line: (directive, mentions JS_PHOENIX, inside a JS_PHOENIX-only
     region, the directive belongs to a JS_PHOENIX conditional)."""
-    stack = []  # [phoenix_only_branch, condition_names_phoenix]
-    result = []
+    stack: list[list[bool]] = []  # [phoenix_only_branch, condition_names_phoenix]
+    result: list[tuple[bool, bool, bool, bool]] = []
     for line in lines:
         match = DIRECTIVE_RE.match(line)
         inside = any(only for only, _ in stack)
@@ -219,10 +224,10 @@ def guard_map(lines):
     return result
 
 
-def include_guard(lines):
+def include_guard(lines: list[str]) -> set[int]:
     """The line numbers of a header's include guard, if it has one."""
-    directives = [(i, DIRECTIVE_RE.match(l)) for i, l in enumerate(lines)]
-    directives = [(i, m) for i, m in directives if m]
+    matches = [(i, DIRECTIVE_RE.match(l)) for i, l in enumerate(lines)]
+    directives = [(i, m) for i, m in matches if m]
     if len(directives) < 3:
         return set()
     (i0, m0), (i1, m1), (iz, mz) = directives[0], directives[1], directives[-1]
@@ -236,9 +241,9 @@ def include_guard(lines):
     return set()
 
 
-def phoenix_build_files(read_new, moz_builds):
+def phoenix_build_files(read_new: ReadFile, moz_builds: list[str]) -> set[str]:
     """The files that a moz.build compiles only under CONFIG["JS_PHOENIX"]."""
-    files = set()
+    files: set[str] = set()
     for path in moz_builds:
         lines = read_new(path) or []
         for start, end in phoenix_blocks(lines):
@@ -248,8 +253,9 @@ def phoenix_build_files(read_new, moz_builds):
     return files
 
 
-def phoenix_blocks(lines):
-    blocks = []
+def phoenix_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    """The [start, end) line ranges of the `if CONFIG["JS_PHOENIX"]:` blocks."""
+    blocks: list[tuple[int, int]] = []
     for i, line in enumerate(lines):
         if re.match(r"^\s*if\s+CONFIG\[\s*[\"']JS_PHOENIX[\"']\s*\]\s*:", line):
             indent = len(line) - len(line.lstrip())
@@ -262,20 +268,22 @@ def phoenix_blocks(lines):
     return blocks
 
 
-def changed_lines(old, new):
+def changed_lines(old: list[str], new: list[str]) -> Iterator[tuple[list[int], list[int]]]:
+    """The indices of the lines each change removes from |old| and adds to |new|."""
     matcher = difflib.SequenceMatcher(a=old, b=new, autojunk=False)
     for tag, a0, a1, b0, b1 in matcher.get_opcodes():
         if tag != "equal":
             yield list(range(a0, a1)), list(range(b0, b1))
 
 
-def check_cxx(path, old, new, where):
+def check_cxx(path: str, old: list[str] | None, new: list[str], where: str) -> None:
     guards = guard_map(new)
     neutral = include_guard(new) if old is None else set()
-    for removed, added in changed_lines(old or [], new):
+    old_lines = old or []
+    for removed, added in changed_lines(old_lines, new):
         adds_phoenix_directive = any(guards[i][0] and guards[i][1] for i in added)
         for i in removed:
-            line = old[i]
+            line = old_lines[i]
             if is_neutral(line):
                 continue
             if DIRECTIVE_RE.match(line) and adds_phoenix_directive:
@@ -293,28 +301,30 @@ def check_cxx(path, old, new, where):
             )
 
 
-def check_moz_build(path, old, new, where):
-    inside = set()
+def check_moz_build(path: str, old: list[str] | None, new: list[str], where: str) -> None:
+    inside: set[int] = set()
     for start, end in phoenix_blocks(new):
         inside.update(range(start, end))
-    for removed, added in changed_lines(old or [], new):
+    old_lines = old or []
+    for removed, added in changed_lines(old_lines, new):
         for i in removed:
-            if old[i].strip():
-                error(f"{where}{path}: removes `{old[i].strip()}`")
+            if old_lines[i].strip():
+                error(f"{where}{path}: removes `{old_lines[i].strip()}`")
         for i in added:
             if new[i].strip() and i not in inside:
                 error(f'{where}{path}:{i + 1}: `{new[i].strip()}` isn\'t under if CONFIG["JS_PHOENIX"]')
 
 
-def check_moz_configure(path, old, new, where):
-    for removed, added in changed_lines(old or [], new):
-        if any(old[i].strip() for i in removed):
+def check_moz_configure(path: str, old: list[str] | None, new: list[str], where: str) -> None:
+    old_lines = old or []
+    for removed, added in changed_lines(old_lines, new):
+        if any(old_lines[i].strip() for i in removed):
             error(f"{where}{path}: removes lines {removed[0] + 1}-{removed[-1] + 1}")
         if added and not any("phoenix" in new[i].lower() for i in added):
             error(f"{where}{path}:{added[0] + 1}: adds lines that don't mention phoenix")
 
 
-def check_guards(reference, paths, read_new, where):
+def check_guards(reference: str, paths: Collection[str], read_new: ReadFile, where: str) -> None:
     moz_builds = [p for p in paths if os.path.basename(p) == "moz.build"]
     guarded_files = phoenix_build_files(read_new, moz_builds)
     for path in sorted(paths):
@@ -341,8 +351,8 @@ def check_guards(reference, paths, read_new, where):
 # Check 5: the reference's checkout isn't edited.
 
 
-def worktree_of(branch):
-    path = None
+def worktree_of(branch: str) -> str | None:
+    path: str | None = None
     for line in git_out("worktree", "list", "--porcelain").splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree ") :]
@@ -351,7 +361,7 @@ def worktree_of(branch):
     return None
 
 
-def check_reference_worktree(reference):
+def check_reference_worktree(reference: str) -> None:
     path = worktree_of(reference)
     if path is None:
         print(f"{reference}: not checked out in any worktree")
@@ -366,7 +376,7 @@ def check_reference_worktree(reference):
         print(f"{reference}: checked out in {path}, with no uncommitted changes")
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

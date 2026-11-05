@@ -1,0 +1,20 @@
+[project]
+name = "phoenix-tools"
+version = "0.1.0"
+description = "Tools for testing cachet-lean's model against SpiderMonkey (phoenix-docs/README.md)"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = ["pyright>=1.1.414"]
+
+[tool.uv]
+# The tools are scripts, run as files: there's no package to build.
+package = false
+
+[tool.pyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.10"
+include = ["."]
+exclude = [".venv", "third_party", "**/__pycache__"]
+extraPaths = ["third_party"]
