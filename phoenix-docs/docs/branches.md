@@ -35,8 +35,8 @@ and indexed:
 
 - the shells without Phoenix that the bug-fix reports reproduce on (see
   [spidermonkey.md](spidermonkey.md));
-- the USR index that `cachet-lean`'s annotations will be checked against (see
-  [TODO.md](../TODO.md)). It indexes this checkout, not `phoenix-dev`'s, whose hooks move the
+- the USR index that `cachet-lean`'s annotations are checked against (see
+  [usr-index.md](usr-index.md)). It indexes this checkout, not `phoenix-dev`'s, whose hooks move the
   lines of the files they're in.
 
 Build there, but never edit there. Building only writes gitignored files (objdirs, mozconfigs,

@@ -25,13 +25,17 @@ model against the real SpiderMonkey.
 - [docs/recorder.md](docs/recorder.md): how the recorder works, and its record format.
 - [docs/substitution.md](docs/substitution.md): replacing stub code with Lean's (`PHOENIX_REPLAY`),
   the replay table's format, and what the Lean driver has to produce.
+- [docs/usr-index.md](docs/usr-index.md): the USR index of the reference's C++ entities, for
+  `cachet-lean`'s provenance checker: running it, its dependencies, and its format.
 - [docs/branches.md](docs/branches.md): the branches, and how to add a bug fix or move the pin.
 - [docs/spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into,
   the builds, and their pitfalls.
 
-**Tools** are in `phoenix-tools/`: `record-jit-tests.sh`, `corpus.py`, `replay-table.py` and
-`check-stack.py`, a test in `tests/`, and the bug reports' scripts in `repro/`. Recorded runs go in
-`../phoenix-runs/`.
+**Tools** are in `phoenix-tools/`: `record-jit-tests.sh`, `corpus.py`, `replay-table.py`,
+`usr-index.py` and `check-stack.py`, tests in `tests/`, the bug reports' scripts in `repro/`,
+libclang's Python bindings in `third_party/clang/`, and `pyproject.toml` and `uv.lock` for
+type-checking them. Recorded runs go in `../phoenix-runs/`, and indexes in `../phoenix-index/`.
+What the tools need is in the README's "Dependencies".
 
 **Checkouts and branches** (details in [docs/branches.md](docs/branches.md)):
 
@@ -67,6 +71,10 @@ model against the real SpiderMonkey.
   objdirs) aren't edits.
 - **Read SpiderMonkey's code locally**, restricted to `js/src/jit` or another narrow directory:
   the tree is pinned and older than Searchfox's index.
+- **Type-check the Python tools.** Every function in `phoenix-tools/` (but `third_party/`) has
+  type annotations, and `uv run pyright` in `phoenix-tools/` must report no errors, in standard
+  mode (configured in `pyproject.toml`). Run it before committing a change to the tools. They
+  stay flat scripts, run as files, not a package.
 - **Build in the right objdir.** The JS shell with the recorder is `obj-js-x64`
   (`MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build`). Shells without Phoenix are built in
   `../firefox-phoenix`. The browser objdir has no shell. All the objdirs, and which checkout
