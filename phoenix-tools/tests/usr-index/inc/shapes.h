@@ -41,6 +41,33 @@ struct Box<int> {
   int count;
 };
 
+template <typename T>
+T half(T v);
+
+typedef long long Count;
+
+template <>
+Count half<Count>(Count v);
+
+template <>
+double half(double v);
+
+#define DECLARE_HALF(type) template <> type half<type>(type v);
+DECLARE_HALF(float)
+
+struct Holder {
+  template <typename T>
+  bool is() const;
+};
+
+template <>
+bool Holder::is<Shape>() const;
+
+template <typename T>
+struct Wrapper {
+  operator geo::Box<T>() const;
+};
+
 int scale(int v);
 double scale(double v);
 
