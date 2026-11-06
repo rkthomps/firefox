@@ -231,6 +231,21 @@ def test_index(checkout: str, root: str) -> None:
     canonical = [e["name"] for e in entities if "type-parameter" in e["name"]]
     check(not canonical, f"names with clang's canonical spellings: {canonical}")
 
+    # `= default` and `= delete` are definitions. clang makes Pair() a body only in shapes.cpp,
+    # which uses it, so libclang alone would give it a record with each isDefinition.
+    for name, signature, definition in [
+        ("geo::Pair::Pair", "geo::Pair::Pair()", True),
+        ("geo::Pair::Pair", "geo::Pair::Pair(const Pair &)", True),
+        ("geo::release", "geo::release(int *)", True),
+        ("geo::release", "geo::release(T *)", True),
+        ("geo::scale", "geo::scale(int)", False),
+    ]:
+        record = one(name, signature=signature, file=h)
+        check(
+            record.get("isDefinition") is definition,
+            f"{signature}'s isDefinition is {record.get('isDefinition')}",
+        )
+
     scales = find("geo::scale", file=h)
     check(
         sorted(e["signature"] for e in scales) == ["geo::scale(double)", "geo::scale(int)"],

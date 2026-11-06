@@ -68,6 +68,16 @@ struct Wrapper {
   operator geo::Box<T>() const;
 };
 
+struct Pair {
+  Pair() = default;
+  Pair(const Pair&) = delete;
+  Shape first;
+};
+
+void release(int* p) = delete;
+template <typename T>
+void release(T* p) = delete;
+
 int scale(int v);
 double scale(double v);
 
