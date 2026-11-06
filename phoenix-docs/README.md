@@ -17,14 +17,16 @@ This directory documents the infrastructure on `phoenix-dev` that tests the Lean
     format, and what the Lean driver has to produce;
   - [usr-index.md](docs/usr-index.md): the USR index of the reference's C++ entities, for
     `cachet-lean`'s provenance checker;
+  - [backends.md](docs/backends.md): cross-compiling SpiderMonkey for other architectures, such
+    as 32-bit ARM: sysroots, Rust's targets, and the ARM baseline;
   - [branches.md](docs/branches.md): the `phoenix` and `phoenix-dev` branches, the reference
     checkout, how to add a bug fix, and how to move to a new pin;
   - [spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into, the
     builds, and their pitfalls.
 
 The rest of this file is what the tools need, how to record what SpiderMonkey's IC stub
-generators and compiler do, how to run the tests on replacement stub code, and how to index the
-reference's C++.
+generators and compiler do, how to run the tests on replacement stub code, how to index the
+reference's C++, and how to make a sysroot for another architecture.
 
 ## Dependencies
 
@@ -38,6 +40,10 @@ reference's C++.
   makes a `.venv` (gitignored), installs pyright in it, and checks every tool in pyright's
   standard mode. On its first run, pyright's PyPI wrapper downloads a Node.js of its own into
   its cache (Node 26.13.0 on 2026-11-05), since Mozilla's isn't on the PATH.
+- **For a backend other than x64** ([docs/backends.md](docs/backends.md)): its sysroot, which
+  `phoenix-tools/sysroot.py` makes, with `gpgv` and Debian's keys (`sudo apt install
+  debian-archive-keyring`) to check what it downloads; and Rust's standard library for the target
+  (`rustup target add armv7-unknown-linux-gnueabihf` for 32-bit ARM).
 
 ## Building the recorder
 
@@ -175,5 +181,26 @@ phoenix-tools/usr-index.py
 
 The first command writes the compile database of `../firefox-phoenix/obj-js-x64`. Rerun it when
 `phoenix` changes. The second parses every translation unit of that build, in about a minute, and
-writes `../phoenix-index/x64.json`, which `cachet-lean`'s checker reads. Its options, its
-dependencies and its format are in [docs/usr-index.md](docs/usr-index.md).
+writes `../phoenix-index/x64.json`, which `cachet-lean`'s checker reads.
+
+ARM's objdir is configured but never built, so it makes its generated files first. It needs ARM's
+sysroot (below):
+
+```
+(cd ../firefox-phoenix && export MOZCONFIG=$PWD/mozconfig-js-arm &&
+  ./mach build pre-export export pre-compile && ./mach build-backend -b CompileDB)
+phoenix-tools/usr-index.py --objdir obj-js-arm --build arm
+```
+
+The options, the dependencies and the format are in [docs/usr-index.md](docs/usr-index.md).
+
+## Making a sysroot for another architecture
+
+```
+phoenix-tools/sysroot.py --arch armhf
+```
+
+It downloads nine Debian packages from a pinned snapshot of Debian's archive, checks them, and
+unpacks their headers and libraries into `~/.mozbuild/sysroot-armhf-linux-gnu`, in about 20 s.
+A mozconfig's `--with-sysroot` then points at it. What a sysroot is, the options, and how the
+script works are in [docs/backends.md](docs/backends.md).

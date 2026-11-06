@@ -27,14 +27,17 @@ model against the real SpiderMonkey.
   the replay table's format, and what the Lean driver has to produce.
 - [docs/usr-index.md](docs/usr-index.md): the USR index of the reference's C++ entities, for
   `cachet-lean`'s provenance checker: running it, its dependencies, and its format.
+- [docs/backends.md](docs/backends.md): cross-compiling SpiderMonkey for other architectures:
+  sysroots (`sysroot.py`), Rust's targets, and the ARM baseline.
 - [docs/branches.md](docs/branches.md): the branches, and how to add a bug fix or move the pin.
 - [docs/spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into,
   the builds, and their pitfalls.
 
 **Tools** are in `phoenix-tools/`: `record-jit-tests.sh`, `corpus.py`, `replay-table.py`,
-`usr-index.py` and `check-stack.py`, tests in `tests/`, the bug reports' scripts in `repro/`,
-libclang's Python bindings in `third_party/clang/`, and `pyproject.toml` and `uv.lock` for
-type-checking them. Recorded runs go in `../phoenix-runs/`, and indexes in `../phoenix-index/`.
+`usr-index.py`, `sysroot.py` and `check-stack.py`, tests in `tests/`, the bug reports' scripts in
+`repro/`, libclang's Python bindings in `third_party/clang/`, and `pyproject.toml` and `uv.lock`
+for type-checking them. Recorded runs go in `../phoenix-runs/`, indexes in `../phoenix-index/`,
+and sysroots in `~/.mozbuild/`.
 What the tools need is in the README's "Dependencies".
 
 **Checkouts and branches** (details in [docs/branches.md](docs/branches.md)):
