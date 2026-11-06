@@ -16,23 +16,17 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
 - The branches and the pin tag are only local. Decide whether to push them to `origin`. Rebasing
   `phoenix-dev` means force-pushing it.
 
-## The USR index for ARM
+## The USR index: names of an instantiation's members
 
-The USR index is built for x64 only, as of 2026-11-04 ([docs/usr-index.md](docs/usr-index.md)).
-ARM needs a configuration of its own, and each option has a catch:
-
-- **The ARM simulator** (`--enable-simulator=arm`, the planned `mozconfig-js-armsim` in
-  [docs/spidermonkey.md](docs/spidermonkey.md)) compiles `js/src/jit/arm/`, but for a 32-bit x86
-  host. It defines `__i386__`, not `__arm__`, so its index misses the code under
-  `#if defined(__arm__)`, such as ARM's inline-assembly `ToSignedInteger<int32_t>`, which
-  `cachet-lean`'s `docs/arch/provenance.md` cites. A 32-bit x86 configuration hasn't been tried
-  here.
-- **A real ARM target** (`--target=arm-linux-gnueabihf`) defines `__arm__`, but configure needs
-  an ARM sysroot, and `~/.mozbuild` has only x86_64 and wasm32 ones.
-
-Either way, the index needs only a compile database, not a build: configure, then
-`./mach build pre-export export` for the generated headers, then
-`./mach build-backend -b CompileDB`, as `../icarus/crates/phoenix/build.rs` does.
+A flaw of `usr-index.py` ([docs/usr-index.md](docs/usr-index.md)), found on 2026-11-06. A member
+specialized for one instantiation of a class template,
+`template <> bool TypedArrayObjectTemplate<int64_t>::convertValue(…)`, is named
+`(anonymous namespace)::TypedArrayObjectTemplate<long>::convertValue` on x64 and `…<long long>…`
+on ARM: its class is named from the instantiation's display name, whose arguments are canonical,
+since an implicit instantiation has none written. 6 records in each build. Fix: name the scope as
+the declaration writes its qualifier, which the pretty-printed declaration has, as for a
+function's arguments. It changes names, so the format's doc and `cachet-lean`'s
+`docs/arch/provenance.md` change with it.
 
 ## Distinct counts in the corpus summary
 

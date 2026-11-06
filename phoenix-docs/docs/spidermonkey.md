@@ -43,6 +43,7 @@ checkout, `../firefox-phoenix` (see [branches.md](branches.md)), whose sources a
 | `firefox-phoenix-dev` | `obj-x86_64-pc-linux-gnu` | `mozconfig` | the browser (debug), and clangd's database. It has no JS shell: `--enable-js-shell` is on by default only for standalone JS builds |
 | `firefox-phoenix` | `obj-js-x64` | `mozconfig-js-x64`, without `--enable-phoenix` | a plain x64 shell of the reference: reproducing a JIT bug without Phoenix, and the compile database of the x64 USR index ([usr-index.md](usr-index.md)) |
 | `firefox-phoenix` | `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter): reproducing the bugs in [bug-fixes/](../bug-fixes/) |
+| `firefox-phoenix` | `obj-js-arm` | `mozconfig-js-arm` | a real 32-bit ARM shell, cross-compiled ([backends.md](backends.md)). Configured, not built: the compile database of the ARM USR index |
 | | `obj-js-armsim` | `mozconfig-js-armsim` | not built yet: ARM stub bytes on this machine, through SpiderMonkey's ARM simulator |
 
 ```
@@ -60,6 +61,20 @@ ac_add_options --enable-debug
 ac_add_options --enable-portable-baseline-interp
 ac_add_options --enable-aot-ics
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-pbl
+```
+
+```
+# mozconfig-js-arm (../firefox-phoenix): a real 32-bit ARM shell from phoenix's sources, without
+# Phoenix, cross-compiled (phoenix-docs/docs/backends.md)
+ac_add_options --enable-project=js
+ac_add_options --enable-debug
+ac_add_options --target=arm-linux-gnueabihf
+ac_add_options --with-arch=armv7-a
+ac_add_options --with-thumb=yes
+ac_add_options --with-fpu=vfpv3-d16
+ac_add_options --with-float-abi=hard
+ac_add_options --with-sysroot=$HOME/.mozbuild/sysroot-armhf-linux-gnu
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-arm
 ```
 
 ```
