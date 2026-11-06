@@ -289,6 +289,27 @@ def specialization_arguments(cursor: cindex.Cursor, policy: cindex.PrintingPolic
     return found[0]
 
 
+def is_definition(cursor: cindex.Cursor, policy: cindex.PrintingPolicy) -> bool:
+    """Whether this declaration is a definition, by clang's rule
+    (`FunctionDecl::isThisDeclarationADefinition`): a function declared `= default` or
+    `= delete` is one, since those are function bodies ([dcl.fct.def.general]).
+
+    libclang counts only a body, which clang makes for a defaulted function only in translation
+    units that use it, so they'd disagree. libclang tells whether a method is defaulted or
+    deleted, but not a free function. One can't be defaulted, but a friend comparison, which
+    isn't indexed; a deleted one is printed ending in ` = delete` (DeclPrinter)."""
+    if cursor.is_definition():
+        return True
+    if cursor.kind not in FUNCTIONS:
+        return False
+    if cursor.is_default_method() or cursor.is_deleted_method():
+        return True
+    parent = cursor.semantic_parent
+    if parent is not None and parent.kind in CLASSES:
+        return False
+    return cursor.pretty_printed(policy).endswith(" = delete")
+
+
 def entity(
     cursor: cindex.Cursor,
     path: str,
@@ -342,7 +363,7 @@ def entity(
         "file": path,
         "line": line,
         "endLine": end_line,
-        "isDefinition": cursor.is_definition(),
+        "isDefinition": is_definition(cursor, policy),
     }
     parent = cursor.semantic_parent
     if kind == K.FUNCTION_TEMPLATE and parent is not None and parent.kind in CLASSES:
@@ -437,7 +458,7 @@ def index_tu(task: Task) -> tuple[str, list[str], list[Record]]:
     if root is None:
         return where, errors + ["libclang gave no cursor for it"], []
     top = list(root.get_children())
-    # How specializations' declarations are printed (specialization_arguments): without bodies.
+    # How declarations are printed (specialization_arguments, is_definition): without bodies.
     policy = cindex.PrintingPolicy.create(root)
     policy.set_property(cindex.PrintingPolicyProperty.TerseOutput, 1)
     records: list[Record] = []

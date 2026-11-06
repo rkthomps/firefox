@@ -17,4 +17,6 @@ int scale(int v) { return v * 2; }
 
 double scale(double v) { return v * 2; }
 
+void usePair() { Pair pair; }
+
 }  // namespace geo
