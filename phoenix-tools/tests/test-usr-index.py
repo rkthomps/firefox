@@ -206,6 +206,31 @@ def test_index(checkout: str, root: str) -> None:
     one("geo::Box<int>::count", kind="field", file=h)
     check(box.get("usr") != box_int.get("usr"), "the class template and its specialization share a USR")
 
+    # A function specialization's arguments are as written, so a typedef stays.
+    count = one("geo::half<Count>", file=h)
+    check(
+        count.get("signature") == "geo::half<Count>(Count)",
+        f"half<Count>'s signature is {count.get('signature')}",
+    )
+    one("geo::half<double>", file=h, line=line_of(checkout, h, "double half(double v);"))
+    from_macro = one("geo::half<float>", file=h)
+    check(
+        (from_macro.get("macro") or {}).get("name") == "DECLARE_HALF",
+        f"half<float>'s macro is {from_macro.get('macro')}",
+    )
+    member = one("geo::Holder::is<Shape>", kind="method", file=h)
+    check(
+        member.get("signature") == "geo::Holder::is<Shape>() const",
+        f"is<Shape>'s signature is {member.get('signature')}",
+    )
+    conversion = one("geo::Wrapper::operator geo::Box<T>", kind="method", file=h)
+    check(
+        conversion.get("signature") == "geo::Wrapper::operator geo::Box<T>() const",
+        f"the conversion function's signature is {conversion.get('signature')}",
+    )
+    canonical = [e["name"] for e in entities if "type-parameter" in e["name"]]
+    check(not canonical, f"names with clang's canonical spellings: {canonical}")
+
     scales = find("geo::scale", file=h)
     check(
         sorted(e["signature"] for e in scales) == ["geo::scale(double)", "geo::scale(int)"],
@@ -255,12 +280,40 @@ def test_fails_on_errors(checkout: str, root: str) -> None:
     check(not os.path.exists(output), "the indexer wrote an index despite errors")
 
 
+def test_fails_on_unread_arguments(checkout: str, root: str) -> None:
+    # A parenthesized name is printed `(half<short>)(short v)`: no `(` after the arguments.
+    with open(os.path.join(checkout, "src", "paren.cpp"), "w") as f:
+        f.write('#include "shapes.h"\nnamespace geo {\ntemplate <>\nshort (half<short>)(short v);\n}\n')
+    git(checkout, "add", "src/paren.cpp")
+    git(checkout, "commit", "-q", "-m", "paren")
+    database = os.path.join(checkout, "obj", "compile_commands.json")
+    with open(database) as f:
+        entries: list[dict[str, str]] = json.load(f)
+    entries.append(
+        {
+            "directory": entries[0]["directory"],
+            "file": f"{checkout}/src/paren.cpp",
+            "command": f"{CLANG} -std=gnu++20 -I {checkout}/inc -o /dev/null -c {checkout}/src/paren.cpp",
+        }
+    )
+    with open(database, "w") as f:
+        json.dump(entries, f)
+    output = os.path.join(root, "paren.json")
+    result = index(checkout, output, "--only", "paren.cpp")
+    check(
+        result.returncode != 0 and "template arguments" in result.stderr,
+        f"the indexer didn't fail on arguments it couldn't read:\n{result.stderr}",
+    )
+    check(not os.path.exists(output), "the indexer wrote an index despite unread arguments")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as root:
         checkout = make_checkout(root)
         test_index(checkout, root)
         test_refuses_uncommitted_changes(checkout, root)
         test_fails_on_errors(checkout, root)
+        test_fails_on_unread_arguments(checkout, root)
     if failures:
         print(f"{len(failures)} of {checks} checks failed:")
         for message in failures:

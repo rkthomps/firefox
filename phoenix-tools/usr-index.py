@@ -233,25 +233,68 @@ def qualify(scope: str, name: str) -> str:
     return f"{scope}::{name}" if scope else name
 
 
-def template_arguments(cursor: cindex.Cursor) -> str:
-    """A function template specialization's arguments, e.g. `<int>`, or '' for another function.
-    libclang's display name leaves them out (`twice<>(int)`)."""
-    count = cursor.get_num_template_arguments()
-    if count < 0:
+class UnnamedSpecialization(Exception):
+    """A function template specialization whose arguments aren't where clang prints them."""
+
+
+def closing_angle(text: str, start: int) -> int | None:
+    """The index of the `>` that closes the `<` at |start|, or None. Brackets inside
+    parentheses, as in `Foo<(1 > 2)>`, don't count."""
+    depth = 0
+    parentheses = 0
+    for i in range(start, len(text)):
+        c = text[i]
+        if c == "(":
+            parentheses += 1
+        elif c == ")":
+            parentheses -= 1
+        elif parentheses == 0 and c == "<":
+            depth += 1
+        elif parentheses == 0 and c == ">":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def specialization_arguments(cursor: cindex.Cursor, policy: cindex.PrintingPolicy) -> str:
+    """A function template specialization's arguments, e.g. `<int32_t>`, or '' for another
+    function.
+
+    libclang gives only their canonical types (`<int>`), and none for a method's, so they're read
+    from the declaration as clang prints it. clang's DeclPrinter (VisitFunctionDecl) writes the
+    name, then the arguments as written, or the deduced ones where none are, then `(` and the
+    parameters. Anything else is an error, not a guess."""
+    template = cursor.specialized_template
+    if template is None or template.kind != K.FUNCTION_TEMPLATE:
         return ""
-    arguments: list[str] = []
-    for i in range(count):
-        kind = cursor.get_template_argument_kind(i)
-        if kind == cindex.TemplateArgumentKind.TYPE:
-            arguments.append(cursor.get_template_argument_type(i).spelling)
-        elif kind == cindex.TemplateArgumentKind.INTEGRAL:
-            arguments.append(str(cursor.get_template_argument_value(i)))
-        else:
-            arguments.append("?")
-    return f"<{', '.join(arguments)}>"
+    declaration = cursor.pretty_printed(policy)
+    name = cursor.spelling
+    found: list[str] = []
+    start = declaration.find(f"{name}<")
+    while start >= 0:
+        before = declaration[start - 1] if start else " "
+        end = closing_angle(declaration, start + len(name))
+        if (
+            not (before.isalnum() or before == "_")
+            and end is not None
+            and declaration[end + 1 : end + 2] == "("
+        ):
+            found.append(declaration[start + len(name) : end + 1])
+        start = declaration.find(f"{name}<", start + 1)
+    if len(found) != 1:
+        raise UnnamedSpecialization(
+            f"{name}'s template arguments aren't once after its name in `{declaration}`"
+        )
+    return found[0]
 
 
-def entity(cursor: cindex.Cursor, path: str, macros: dict[str, list[Expansion]]) -> Record | None:
+def entity(
+    cursor: cindex.Cursor,
+    path: str,
+    macros: dict[str, list[Expansion]],
+    policy: cindex.PrintingPolicy,
+) -> Record | None:
     kind = cursor.kind
     usr = cursor.get_usr()
     if not usr:
@@ -275,10 +318,15 @@ def entity(cursor: cindex.Cursor, path: str, macros: dict[str, list[Expansion]])
     if kind in CLASSES:
         name = qualify(scope, class_name(cursor))
     elif kind in FUNCTIONS:
-        # A template is named without its parameters, a specialization with its arguments.
-        base = cursor.spelling
-        if kind != K.FUNCTION_TEMPLATE:
-            base += template_arguments(cursor)
+        # A template is named without its parameters, a specialization with its arguments, and a
+        # conversion function by the type it converts to, as written: its spelling has the
+        # canonical type (`operator Span<type-parameter-0-0, 18446744073709551615>`).
+        if kind == K.CONVERSION_FUNCTION:
+            base = f"operator {cursor.result_type.spelling}"
+        else:
+            base = cursor.spelling
+            if kind != K.FUNCTION_TEMPLATE:
+                base += specialization_arguments(cursor, policy)
         name = qualify(scope, base)
         parameters = cursor.displayname[len(without_parameters(cursor.displayname)) :]
         signature = qualify(scope, base + parameters)
@@ -347,7 +395,11 @@ def macro_at(
 
 
 def walk(
-    cursors: Iterable[cindex.Cursor], macros: dict[str, list[Expansion]], records: list[Record]
+    cursors: Iterable[cindex.Cursor],
+    macros: dict[str, list[Expansion]],
+    policy: cindex.PrintingPolicy,
+    records: list[Record],
+    errors: list[str],
 ) -> None:
     for cursor in cursors:
         kind = cursor.kind
@@ -358,11 +410,15 @@ def walk(
         if not indexed(path):
             continue
         if kind in KINDS:
-            record = entity(cursor, path, macros)
+            try:
+                record = entity(cursor, path, macros, policy)
+            except UnnamedSpecialization as e:
+                errors.append(f"{path}:{cursor.location.line}: {e}")
+                record = None
             if record:
                 records.append(record)
         if kind in SCOPES:
-            walk(cursor.get_children(), macros, records)
+            walk(cursor.get_children(), macros, policy, records, errors)
 
 
 def index_tu(task: Task) -> tuple[str, list[str], list[Record]]:
@@ -381,8 +437,11 @@ def index_tu(task: Task) -> tuple[str, list[str], list[Record]]:
     if root is None:
         return where, errors + ["libclang gave no cursor for it"], []
     top = list(root.get_children())
+    # How specializations' declarations are printed (specialization_arguments): without bodies.
+    policy = cindex.PrintingPolicy.create(root)
+    policy.set_property(cindex.PrintingPolicyProperty.TerseOutput, 1)
     records: list[Record] = []
-    walk(top, macro_index(top), records)
+    walk(top, macro_index(top), policy, records, errors)
     return where, errors, records
 
 
