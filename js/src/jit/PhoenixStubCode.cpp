@@ -236,7 +236,7 @@ bool phoenix::OnBaselineStubCompiled(JSContext* cx, CacheKind kind,
     }
   }
 
-  if (ShouldRecord(kind)) {
+  if (ShouldRecord(RecordType::Compile, kind)) {
     RecordCompile(kind, stubName, writer, comp.phoenixInfo(), relocationBytes,
                   comp.makesGCCalls(), code, replay);
   }

@@ -30,9 +30,13 @@ namespace phoenix {
 // model of it can be tested against it. Nothing is recorded unless
 // PHOENIX_RECORD names a directory: each process then appends JSON Lines to
 // PHOENIX_RECORD/<pid>.jsonl. PHOENIX_RECORD_KINDS, if set, is a
-// comma-separated list of the CacheKinds to record, e.g. "UnaryArith".
+// comma-separated list of the CacheKinds to record, e.g. "UnaryArith", and
+// PHOENIX_RECORD_TYPES one of the types of records to write, e.g. "compile".
 
-bool ShouldRecord(CacheKind kind);
+// The types of records, besides the process record each file begins with.
+enum class RecordType : uint8_t { Generator, Compile, Limit };
+
+bool ShouldRecord(RecordType type, CacheKind kind);
 
 // One record, written as one JSON line: its version, its type (|record|), the
 // process and the CacheKind, then whatever the caller adds through json(). The
@@ -107,7 +111,7 @@ void RecordGenerator(JSScript* script, jsbytecode* pc, const ICState& state,
        ...),
       "The generator may have been constructed by moving from an argument");
 
-  if (!ShouldRecord(gen.cacheKind())) {
+  if (!ShouldRecord(RecordType::Generator, gen.cacheKind())) {
     return;
   }
   GeneratorRecord record(script, pc, gen.cacheKind(), state);
