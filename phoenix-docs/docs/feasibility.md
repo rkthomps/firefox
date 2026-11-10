@@ -98,6 +98,9 @@ Read at the pinned commit:
     `CacheIRSpewer.h`. So `phoenix-dev` can compile it alone by widening those two
     `#ifdef ENABLE_JS_AOT_ICS` guards to a flag of its own. Failing that, record the raw CacheIR
     bytes and have the Lean side parse the binary format.
+  - *Since 2026-11-10 (record format 4), records hold the raw bytes and the writer's state, and
+    the AOT text and the widened guards are gone.* Lean reads the bytes through a translated
+    `CacheIRReader`, and the serializer had given three bugs ([bug-fixes/](../bug-fixes/)).
 - **An assembly trace.** In a `JS_JITSPEW` build (debug builds have it), `IONFLAGS=codegen` prints
   every x86 instruction with its offset as it's emitted (`AssemblerBuffer-x86-shared.h`), and each
   CacheIR op's `emit*` method logs its name on the same channel.
@@ -116,14 +119,15 @@ Build these once. Every goal uses them.
 1. **A recorder in SpiderMonkey** on `phoenix-dev`, compiled in only with `--enable-phoenix`, and
    off unless `PHOENIX_RECORD=<dir>` is set. It writes JSON Lines. How to build, run and read it
    is in [recorder.md](recorder.md).
-   - in `LookupOrCompileStub`, after `comp.compile()`: the kind, the CacheIR in AOT text and as raw
-     bytes, the code (`code->raw()`, `instructionsSize()`), its relocations, and the code offset at
+   - in `LookupOrCompileStub`, after `comp.compile()`: the kind, the CacheIR as bytes with the
+     writer's state, the code (`code->raw()`, `instructionsSize()`), its relocations, and the code offset at
      which each CacheIR op begins. The offsets come from a one-line hook in the compile loop. They
      let a mismatch be blamed on one op without serializing MASM. *Built (compile records), except
      that relocations are recorded only by size.*
    - **at every generator run, in `TryAttachStub` (built):** the generator's inputs (the
      arguments it's constructed with, `Value`s as raw bits), the IC state, its decision and stub
-     name, whether the stub was attached, and the CacheIR it wrote, in AOT text and as bytes.
+     name, whether the stub was attached, and the CacheIR it wrote, as bytes with the writer's
+     state.
      `TryAttachStub` is better than `trackAttached`: one hook covers every generator, and the
      decision is known there. Generators built outside it (`SetProp`, `SetElem`, `Call`,
      `SpreadCall`) still need their own hooks;
@@ -140,9 +144,10 @@ Build these once. Every goal uses them.
    or `assert`. I'd put it in its own Lake package that `require`s `cachet-lean` by path, so
    `cachet-lean`'s library and its rules stay as they are, and the driver can use `IO` and
    `Lean.Json` freely. It needs:
-   - a parser from AOT text to `CacheOp` for the translated ops, reporting any other op as
+   - a reader of CacheIR bytes into `CacheOp` for the translated ops, reporting any other op as
      `notModeled`. Generating it from `CacheIROps.yaml`, as SpiderMonkey generates its own readers,
-     scales to every op, and doubles as the CacheIR encoder `plan.md` already plans;
+     scales to every op. (Until 2026-11-10 this was a parser of the AOT text; `cachet-lean` now
+     has a translated `CacheIRReader`.);
    - `Value`s from raw bits, at each backend's boxing.
 3. **A corpus**, collected by running jit-tests and jstests with the recorder on, and stored outside
    the tree. Every verdict run reports **coverage**: the share of recorded stubs, generator calls
@@ -331,8 +336,8 @@ leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either 
 
 **The intermediate levels:**
 
-- **CacheIR:** compare the AOT text, or the raw bytes, of what each generator wrote. For goal 1b,
-  this is the first check to run.
+- **CacheIR:** compare the bytes and the writer's state of what each generator wrote. For goal
+  1b, this is the first check to run.
 - **MASM:** SpiderMonkey has no serialization of MASM, and adding one means touching every op.
   Recording the code offset where each CacheIR op begins (see the recorder above) blames an
   instruction-level mismatch on one op, which is what a MASM trace would have been for. Instrument
@@ -384,7 +389,7 @@ start at any time.
   offsets. Then a corpus from jit-tests. *Generator and compile records done, with per-op
   offsets, and a `UnaryArith` corpus from jit-tests (see [recorder.md](recorder.md)). Interpreter
   records not yet.*
-- **M2. Lean driver, compiler side:** parse AOT text into `CacheOp`, compile, and compare
+- **M2. Lean driver, compiler side:** read CacheIR bytes into `CacheOp`, compile, and compare
   instructions on x64 (goal 4). This is the first real signal, with a coverage report.
 - **M3. Substitution (goal 1a):** compare mode, then replay. Then jit-tests with `--no-ion
   --baseline-eager`, and coverage tracked from run to run. *Replay done on the C++ side
@@ -394,7 +399,8 @@ start at any time.
   check against XED.
 - **M5. Generator and interpreter checks (goals 1b and 2):** for `UnaryArith` and `BitNot`.
   Neither needs a heap.
-- **M6. ARM:** the `armsim` build, an ARM corpus, word-level comparison, and an ARM oracle (qemu
+- **M6. ARM:** a real ARM shell under QEMU and an ARM corpus (both done on 2026-11-09, not the
+  `armsim` build: see [backends.md](backends.md)), word-level comparison, and an ARM oracle (QEMU
   first, hardware later).
 - **M7. Heap:** decide the representation, then snapshots, and tracing if wanted, before the first
   stub that reads memory.
@@ -412,9 +418,8 @@ start at any time.
   `ArrayBufferViewKind::Immutable`, so serializing an op with that kind hits `MOZ_CRASH`. And
   `CacheIRWriter::operandLastUsed` reads past the end of its vector for an input operand no
   instruction uses, which crashes on a `for-of` over an array (found 2026-11-04). All three are
-  still on upstream `main`, which makes them good first bugs to file.
-- **The AOT serializer's guard is widened on `phoenix-dev`** to `ENABLE_JS_AOT_ICS ||
-  JS_PHOENIX`. The block compiles without the rest of the AOT code.
+  still on upstream `main`, which makes them good first bugs to file. The recorder no longer uses
+  the serializer (record format 4, 2026-11-10).
 - **Lean evaluation speed:** the model's memory is a function, which is fine for stubs but may be
   slow for large sweeps. If so, speed up the driver's own data structures, not the model's.
 - **Questions for you:**

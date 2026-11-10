@@ -17,11 +17,14 @@ through `searchfox-cli`.
   [recorder.md](recorder.md)).
 - `js/src/jit/CacheIR.cpp`, `CacheIRGenerator.h`: the stub generators (`UnaryArithIRGenerator`,
   …).
+- `js/src/jit/CacheIRWriter.h`: the writer, whose buffer and state the records hold (see
+  [recorder.md](recorder.md)).
 - `js/src/jit/CacheIRSpewer.cpp` (`SpewCacheIROpsAsAOT`) and `js/src/jit/CacheIRAOT.h`: the
   ahead-of-time IC corpus. It serializes a `CacheIRWriter` as portable text and rebuilds a writer
-  from it. `--enable-aot-ics` builds only with the portable baseline interpreter, so don't put it
-  in a JIT mozconfig (see "What SpiderMonkey already provides" in
-  [feasibility.md](feasibility.md)).
+  from it. Records held that text until version 4 (2026-11-10); nothing of Phoenix uses it now,
+  but the three bugs in [bug-fixes/](../bug-fixes/) are in it. `--enable-aot-ics` builds only
+  with the portable baseline interpreter, so don't put it in a JIT mozconfig (see "What
+  SpiderMonkey already provides" in [feasibility.md](feasibility.md)).
 - `js/src/jit/x86-shared/AssemblerBuffer-x86-shared.h`: with `IONFLAGS=codegen` in a `JS_JITSPEW`
   build (debug builds have it), every x86 instruction is printed with its offset as it's
   emitted.
