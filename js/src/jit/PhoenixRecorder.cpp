@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "jit/CacheIRSpewer.h"
 #include "jit/JitCode.h"
 #include "jit/JitOptions.h"
 #include "js/ColumnNumber.h"
@@ -28,7 +27,11 @@ using namespace js::jit;
 using namespace js::jit::phoenix;
 
 // The version of the record format, in every record's "v".
-static constexpr int RecordVersion = 3;
+static constexpr int RecordVersion = 4;
+
+// Records give these enums by number, so a renumbering must not go unnoticed.
+static_assert(uint8_t(StubField::Type::Limit) == 17);
+static_assert(JSVAL_TYPE_UNKNOWN == 0x20);
 
 #if defined(JS_CODEGEN_X86)
 static constexpr const char* BackendName = "x86";
@@ -213,20 +216,6 @@ bool phoenix::ShouldRecord(CacheKind kind) {
   return recorder.file && recorder.recordKind[size_t(kind)];
 }
 
-// JSON-escapes the AOT text of a stub's CacheIR, dropping the newline that
-// ends it.
-class AOTEscape {
-  JSONEscape json_;
-
- public:
-  bool isSafeChar(char16_t c) { return c != '\n' && json_.isSafeChar(c); }
-  void convertInto(GenericPrinter& out, char16_t c) {
-    if (c != '\n') {
-      json_.convertInto(out, c);
-    }
-  }
-};
-
 static const char* ModeName(ICState::Mode mode) {
   switch (mode) {
     case ICState::Mode::Specialized:
@@ -290,35 +279,53 @@ static void WriteHex(JSONPrinter& json, const char* name, const uint8_t* start,
   json.endStringProperty();
 }
 
-// The "cacheir" property: |writer|'s CacheIR as AOT text and as bytes, and with
-// |withStubFields|, its stub fields' values.
-static void WriteCacheIR(JSONPrinter& json, CacheKind kind,
-                         const CacheIRWriter& writer, bool withStubFields) {
+// The "cacheir" property: |writer|'s CacheIR as bytes, and the writer's state
+// the bytes don't hold. With |withStubFieldValues|, its stub fields' values.
+static void WriteCacheIR(JSONPrinter& json, const CacheIRWriter& writer,
+                         bool withStubFieldValues) {
   if (writer.failed() || writer.codeLength() == 0) {
     json.nullProperty("cacheir");
     return;
   }
 
   json.beginObjectProperty("cacheir");
-  {
-    GenericPrinter& p = json.beginStringProperty("aot");
-    AOTEscape esc;
-    EscapePrinter<GenericPrinter, AOTEscape> escaped(p, esc);
-    SpewCacheIROpsAsAOT(escaped, kind, writer);
-    json.endStringProperty();
-  }
   WriteHex(json, "bytes", writer.codeStart(), writer.codeLength());
-  if (withStubFields) {
-    json.beginListProperty("stubFields");
-    for (size_t i = 0; i < writer.numStubFields(); i++) {
-      const StubField& field = writer.stubField(i);
-      json.beginObject();
-      json.property("type", StubFieldTypeName(field.type()));
-      json.formatProperty("value", "0x%016" PRIx64, field.rawData());
-      json.endObject();
-    }
-    json.endList();
+  json.beginObjectProperty("writer");
+  json.property("numInputOperands", writer.numInputOperands());
+  json.property("numOperandIds", writer.numOperandIds());
+  json.property("numInstructions", writer.numInstructions());
+
+  // operandLastUsed_'s entries, as many as it has. writeOperandId resizes it
+  // up to the operand it writes, so the entries are a prefix of the operands,
+  // and an operand has one exactly when it's dead after every instruction.
+  json.beginListProperty("operandLastUsed");
+  uint32_t numEntries = 0;
+  while (numEntries < writer.numOperandIds() &&
+         writer.operandIsDead(numEntries, UINT32_MAX)) {
+    json.value(int(writer.operandLastUsed(numEntries)));
+    numEntries++;
   }
+#ifdef DEBUG
+  for (uint32_t id = numEntries; id < writer.numOperandIds(); id++) {
+    MOZ_ASSERT(!writer.operandIsDead(id, UINT32_MAX));
+  }
+#endif
+  json.endList();
+
+  json.property("stubDataSize", uint64_t(writer.stubDataSize()));
+  json.property("typeData", uint32_t(writer.typeData().type()));
+  json.beginListProperty("stubFields");
+  for (size_t i = 0; i < writer.numStubFields(); i++) {
+    const StubField& field = writer.stubField(i);
+    json.beginObject();
+    json.property("type", uint32_t(field.type()));
+    if (withStubFieldValues) {
+      json.formatProperty("value", "0x%016" PRIx64, field.rawData());
+    }
+    json.endObject();
+  }
+  json.endList();
+  json.endObject();
   json.endObject();
 }
 
@@ -345,7 +352,7 @@ RecordLine::~RecordLine() {
 
 GeneratorRecord::GeneratorRecord(JSScript* script, jsbytecode* pc,
                                  CacheKind kind, const ICState& state)
-    : kind_(kind), line_("generator", kind) {
+    : line_("generator", kind) {
   JSONPrinter& json = line_.json();
   json.beginObjectProperty("loc");
   {
@@ -436,7 +443,7 @@ void GeneratorRecord::outcome(AttachDecision decision, bool attached,
     json.nullProperty("stubName");
   }
   json.boolProperty("writerFailed", writer.failed());
-  WriteCacheIR(json, kind_, writer, /* withStubFields = */ true);
+  WriteCacheIR(json, writer, /* withStubFieldValues = */ true);
 }
 
 void phoenix::RecordCompile(CacheKind kind, const char* stubName,
@@ -451,7 +458,7 @@ void phoenix::RecordCompile(CacheKind kind, const char* stubName,
   } else {
     json.nullProperty("stubName");
   }
-  WriteCacheIR(json, kind, writer, /* withStubFields = */ false);
+  WriteCacheIR(json, writer, /* withStubFieldValues = */ false);
 
   json.beginObjectProperty("code");
   WriteHex(json, "bytes", code->raw(), code->instructionsSize());

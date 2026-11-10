@@ -52,7 +52,6 @@ class MOZ_RAII RecordLine {
 
 // One run of a generator.
 class MOZ_RAII GeneratorRecord {
-  CacheKind kind_;
   RecordLine line_;
 
   void jsopArg(JSOp op);
