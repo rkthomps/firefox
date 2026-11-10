@@ -70,14 +70,18 @@ QEMU (below).
 ## Recording jit-tests
 
 ```
-phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE] LABEL [KINDS]
-                                  [-- JIT_TEST_ARGS...]
+phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE]
+                                  [--record-types TYPES] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 ```
 
 - `LABEL` names the run, which goes in `../phoenix-runs/<date>-LABEL`. Set `PHOENIX_RUNS` to put
   runs somewhere else. A label that already has a run that day is refused, not overwritten.
 - `KINDS` is a comma-separated list of `CacheKind`s to record, e.g. `UnaryArith`. Without it,
   every kind is recorded, even if `PHOENIX_RECORD_KINDS` is set in your shell.
+- `--record-types TYPES` is a comma-separated list of the types of records to write, `generator`
+  and `compile` (`PHOENIX_RECORD_TYPES`). Without it, both are written. Generator records are
+  most of a run's size and recording time, and a replay run needs only compile records (see
+  "Running on replacement stub code" below).
 - Arguments after `--` go to `jit_test.py`, e.g. test paths to run only those tests.
 - `--build arm` records the 32-bit ARM shell, `obj-js-arm`, under QEMU, with the sysroot's
   libraries and `QEMU_CPU` (default `cortex-a7`; see [docs/backends.md](docs/backends.md)). It
@@ -100,8 +104,8 @@ phoenix-tools/record-jit-tests.sh quick UnaryArith -- basic/testBitwise.js   # o
 The script:
 
 1. builds the shell, and checks that it was built with `--enable-phoenix`;
-2. tries `KINDS` on a one-line script, so a misspelt kind stops it at once instead of crashing
-   every test;
+2. tries `KINDS`, `TYPES` and the table on a one-line script, so a misspelt kind or type, or a
+   bad table, stops it at once instead of crashing every test;
 3. runs jit-tests with `--no-ion --baseline-eager`. All of jit-tests takes a few minutes on this
    machine;
 4. dedupes the records, and prints the test results, the failed tests, and how many records it
@@ -136,11 +140,13 @@ PHOENIX_RECORD=/tmp/rec PHOENIX_RECORD_KINDS=UnaryArith \
 
 - `PHOENIX_RECORD=<dir>` turns the recorder on. Each process writes `<dir>/<pid>.jsonl`.
 - `PHOENIX_RECORD_KINDS` limits it to some `CacheKind`s. Without it, every kind is recorded.
+- `PHOENIX_RECORD_TYPES` limits it to some types of records, `generator` and `compile`. Without
+  it, both are written. The process record, the first line of each file, is always written.
 - `--baseline-eager` makes ICs attach from the first execution. Without it, a short script never
   reaches an IC, and nothing is recorded.
 - `--no-ion` keeps hot code on the baseline stubs.
-- A directory that doesn't exist, or a kind that doesn't, crashes the shell at the first IC, so
-  a mistake can't pass for an empty run.
+- A directory that doesn't exist, or a kind or record type that doesn't, crashes the shell at
+  the first IC, so a mistake can't pass for an empty run.
 
 The 32-bit ARM shell runs the same way under QEMU, which `qemu-user-binfmt` starts for it. QEMU
 needs the sysroot, for the shell's loader and libraries, and the core to emulate, whose features
@@ -178,7 +184,7 @@ A replay table maps a kind and CacheIR to the machine code to use in place of Sp
 Lean driver will write them; its format is in [docs/substitution.md](docs/substitution.md).
 
 ```
-phoenix-tools/record-jit-tests.sh --replay TABLE LABEL [KINDS]
+phoenix-tools/record-jit-tests.sh --replay TABLE --record-types compile LABEL [KINDS]
 PHOENIX_REPLAY=TABLE obj-js-x64/dist/bin/js --no-ion --baseline-eager SCRIPT.js
 ```
 
@@ -186,6 +192,13 @@ PHOENIX_REPLAY=TABLE obj-js-x64/dist/bin/js --no-ion --baseline-eager SCRIPT.js
   of what it replaced: `python3 phoenix-tools/corpus.py replay RUN/records`.
 - With `PHOENIX_RECORD` set too, each compile record says whether its code was `substituted`,
   `notInTable` or `refused` (C++'s code needed relocations).
+- `PHOENIX_REPLAY` substitutes every kind the table has, whatever `KINDS` says; `KINDS` and
+  `--record-types` only choose what's written. So record at least the table's kinds, or its
+  substitutions aren't counted. Compile records alone are enough, and cheap.
+- To tell what the table changed, compare the run with a control run that differs only in the
+  table: the same `KINDS` and `--record-types`, and no `--replay`. Recording slows some tests
+  enough to time out, so a control recorded differently can fail differently. Without generator
+  records, the run's dedupe line reads "0 records", which is expected.
 - A table that can't be read or parsed crashes the shell at the first stub compiled, with the
   file and line.
 

@@ -17,7 +17,8 @@ How to build it and run it, on one script or on all of jit-tests, is in the
 The recorder is compiled in only with `--enable-phoenix`, which defines `JS_PHOENIX`. Without
 the flag, `phoenix-dev` builds the same code as `phoenix` (see "Changes to Firefox" in
 [CLAUDE.md](../CLAUDE.md)). With it, the recorder still does nothing unless `PHOENIX_RECORD` is
-set.
+set. `PHOENIX_RECORD_KINDS` and `PHOENIX_RECORD_TYPES` choose which kinds and which types of
+records it writes (see the README's "Recording one script").
 
 - `js/moz.configure`: the option and the `JS_PHOENIX` define.
 - `jit/PhoenixRecorder.h`, `jit/PhoenixRecorder.cpp` (in `jit/moz.build`, under
@@ -81,8 +82,10 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
     for the JIT, `ENABLE_JIT_AVX`). Some jit-tests turn them off: `--no-sse4`, which turns off
     AVX too, in `ion/rinstructions-no-sse4.js`, `typedarray/uint8clamped-round-half-to-even.js`,
     `warp/float32-round-int32-min.js` and `wasm/regress/bug1507314.js`; `--no-ssse3` in
-    `regexp/non-ssse3.js`; and `--no-avx` in `regexp/non-avx.js` and three `wasm/gc/` tests, and
-    as an extra run of every test in `wasm/` (`test-also` in its `directives.txt`).
+    `regexp/non-ssse3.js`; and `--no-avx`, which turns off AVX2, FMA and F16C too, in
+    `regexp/non-avx.js` and three `wasm/gc/` tests, and as an extra run of every test in `wasm/`
+    (`test-also` in its `directives.txt`). On 2026-11-10, 459 of 14,147 processes: 449 without
+    AVX, 9 without SSE4, 1 without SSSE3.
 
     So filter on `armFlags` or `x86CPUInfo` before comparing with a model of one CPU.
 - `jitOptions`: the `JitOptions` that change the code the compiler emits for some stubs.
