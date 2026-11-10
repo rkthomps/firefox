@@ -16,6 +16,23 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
 - The branches and the pin tag are only local. Decide whether to push them to `origin`. Rebasing
   `phoenix-dev` means force-pushing it.
 
+## The recorder: `baseline/bug1238815.js` times out when every kind is recorded
+
+Found on 2026-11-09. The test evals one script of 532,480 additions (`Array(65 << 13).join(" +
+i")`), each with its own ICs: a `GetName` for `i` and a `BinaryArith` for `+`. On x64 it passes in 2.9 s recording only `UnaryArith`,
+and under QEMU in 24 s not recording. Recording every kind, it times out on both: on x64 after
+300 s with 452,458 records, under QEMU after 1,200 s with 257,199. So it's the recorder's cost,
+not QEMU's, and it's the one test of the ARM run that fails for want of time (see "jit-tests
+under QEMU" in [docs/backends.md](docs/backends.md)).
+
+Likely cause, not checked: each generator record's `loc` calls `PCToLineNumber`, which walks the
+script's source notes from its start to the pc, so a record costs time linear in its IC's
+offset, and a script with n ICs costs O(n²). Check it by timing records against `pcOffset`, or
+with a profiler. If it's that, compute `loc` incrementally or cache it per script, inside
+`JS_PHOENIX`. Until then the test times out in runs that record every kind, which costs little:
+of the 257,199 records it wrote under QEMU, all but 45 are two stubs, `GetName.EnvironmentName`
+and `BinaryArith.Int32Add`, over and over.
+
 ## The USR index: names of an instantiation's members
 
 A flaw of `usr-index.py` ([docs/usr-index.md](docs/usr-index.md)), found on 2026-11-06. A member

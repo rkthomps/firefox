@@ -20,7 +20,7 @@ the Lean *generators* and the *interpreter* on ops that touch memory, and none a
 | 3. x64 interpreter vs hardware | Yes, now, on this machine | A small C harness | High: the trusted base, 11 instructions |
 | 3. ARM interpreter vs hardware | Yes, with an ARM oracle | ARMv7 hardware, or qemu as a stopgap | High, once an oracle exists |
 | 4. Stub bytes, x64 | Instructions now. Bytes after translating the encoder | `X86Encoding::BaseAssembler` | Instruction-level match |
-| 4. Stub bytes, ARM | Probably bytes now | An ARM build of SpiderMonkey (the simulator) | Word-level match |
+| 4. Stub bytes, ARM | Probably bytes now | Nothing: a real ARM shell records under QEMU (2026-11-09) | Word-level match |
 
 Recommended order: the recorder and corpus, then x64 instruction-level comparison, then
 substitution, with the x64 hardware harness built in parallel. Details are in "Plan" at the end.
@@ -149,9 +149,9 @@ Build these once. Every goal uses them.
    and interpreter operations the model handled. That number is a progress metric for the whole
    project, not just for testing.
 4. **Builds.** The browser objdir has no JS shell, so add JS-shell objdirs selected with
-   `MOZCONFIG`. `obj-js-x64` is built, with the recorder, and so is `obj-js-pbl` (upstream's AOT
-   IC build, for reproducing bugs); `obj-js-armsim` isn't yet. Which checkout has each, and
-   their mozconfigs, are in [spidermonkey.md](spidermonkey.md).
+   `MOZCONFIG`. `obj-js-x64` and `obj-js-arm` (a real 32-bit ARM shell, run under QEMU) are
+   built, with the recorder, and so is `obj-js-pbl` (upstream's AOT IC build, for reproducing
+   bugs). Which checkout has each, and their mozconfigs, are in [spidermonkey.md](spidermonkey.md).
 
 ## Goal 1: SpiderMonkey's tests on the Lean pipeline's stubs
 
@@ -282,9 +282,9 @@ general inputs is expected, and isn't a failure. Only check 2 turns `notModeled`
   machine:** CPL 3; no LAM, LASS or alignment checking; and CET off, since Linux user shadow stacks
   are opt-in.
 
-**32-bit ARM: feasible, with an oracle.** This machine can't run ARM code, and `qemu-arm` isn't
-installed. The same harness ports over: an `arm_*` `ucontext` and CPSR in place of RFLAGS. Oracles,
-from cheapest:
+**32-bit ARM: feasible, with an oracle.** This machine runs ARM code only under QEMU's user mode,
+installed on 2026-11-09 ([backends.md](backends.md)). The same harness ports over: an `arm_*`
+`ucontext` and CPSR in place of RFLAGS. Oracles, from cheapest:
 
 1. **qemu-arm user mode.** It's an emulator, not hardware, but a good first filter for integer
    instructions.
@@ -321,8 +321,10 @@ leaves open: which SCTLR.A Linux runs user code with. An unaligned `LDR` either 
 
 - The assembler is translated from `as_*`, including `Imm8::EncodeImm`, and an ARM instruction has
   essentially one encoding. A word-for-word comparison is the first thing to run.
-- SpiderMonkey's ARM bytes come from the `armsim` build, which emits real ARM code on this machine.
-  The alternative is a cross-compiled shell under qemu.
+- SpiderMonkey's ARM bytes come from a real ARM shell, cross-compiled and run under QEMU's user
+  mode. Not from the `armsim` build: its C++ is x86's, so some of the struct offsets stubs embed
+  are i686's, and its native calls go through the simulator's redirections
+  ([backends.md](backends.md)).
 - The comparison will also settle one choice [examples.md](../../../cachet-lean/docs/arch/examples.md)
   records as the model's own: which of `takeAnyValue`'s two `takeAnyGeneral()` calls runs first.
   C++ leaves argument evaluation order unspecified, and clang picks one.
