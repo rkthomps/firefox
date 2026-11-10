@@ -122,6 +122,6 @@ Checked on 2026-11-03, with `phoenix-tools/tests/bitnot.js` and the int32 `~` st
 - malformed tables (an unknown kind, odd hex, a duplicate entry, two or four fields, a missing
   file) crash with a message naming the file and line;
 - all of jit-tests with its own code replayed, on 2026-11-03 and again in record format 4 on
-  2026-11-10 (`../phoenix-runs/2026-11-10-bitnot-identity-replay`): the same results as without
-  a table (14,183 passed, and the two failures above), with the stub substituted in 86
-  compilations, in 41 tests.
+  2026-11-10 (both runs since deleted; `replay-table.py` remakes the table, see the README): the
+  same results as without a table (14,183 passed, and the two failures above), with the stub
+  substituted in 86 compilations, in 41 tests.
