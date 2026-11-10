@@ -13,8 +13,8 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
   the revision; the clone URL is hard-coded.
 - A list of retired fixes: when the pin moves, a fix upstream has made is dropped, and its report
   goes with it (still reachable from the `phoenix-final/<old-pin>` tag).
-- The branches and the pin tag are only local. Decide whether to push them to `origin`. Rebasing
-  `phoenix-dev` means force-pushing it.
+- The pin tag, `phoenix-pin/f35f2f1f3ae8`, is only local. Decide whether to push it to `origin`,
+  as the branches are (see "Pushing" in [docs/branches.md](docs/branches.md)).
 
 ## The recorder: `baseline/bug1238815.js` times out when every kind is recorded
 

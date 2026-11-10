@@ -28,6 +28,23 @@ So the bug fixes can always be taken on their own: cherry-picked onto upstream, 
 a new pin, without the instrumentation. And the instrumentation is a small set of commits to
 rebase.
 
+## Pushing
+
+Both branches are on `origin`, the fork `rkthomps/firefox` (`upstream` is Mozilla's). `phoenix`
+pushes as usual, since it only moves forward. A rebase gives every commit of `phoenix-dev` a
+new hash, even where its changes are the same, so after one `origin/phoenix-dev` holds the old
+copies, and the branch must be force-pushed:
+
+```
+git push origin phoenix
+git range-diff origin/phoenix-dev...phoenix-dev      # each old commit pairs with a new one, =
+git push --force-with-lease=phoenix-dev:<origin/phoenix-dev's sha> origin phoenix-dev
+```
+
+The lease refuses if the remote moved since you last fetched it. A checkout elsewhere that tracks
+`phoenix-dev`, with no work of its own on it, catches up with `git fetch` and
+`git reset --hard origin/phoenix-dev`. The pin tag is only local (2026-11-09).
+
 ## The reference checkout
 
 `../firefox-phoenix` has `phoenix`'s sources, line for line, so it's where the reference is built
