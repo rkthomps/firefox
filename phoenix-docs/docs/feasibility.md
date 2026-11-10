@@ -168,8 +168,8 @@ Build these once. Every goal uses them.
 - **1b. Lean's generator too.** The input is the generator's inputs, so it tests everything,
   generator included. It needs the inputs, and for heap generators the heap (see "Modeling the
   heap" below). For `UnaryArith` the inputs are `op`, `val` and `res`, three words.
-  - *First corpus* (2026-11-03, all jit-tests with `--no-ion --baseline-eager`, in
-    `../phoenix-runs/2026-11-03-unaryarith-jittest`): `tryAttachBitwise` attached for an int32
+  - *First corpus* (2026-11-03, all jit-tests with `--no-ion --baseline-eager`; the run, in an
+    older record format, was deleted on 2026-11-10): `tryAttachBitwise` attached for an int32
     253 times, in 41 tests, from 35 distinct inputs, all with the same CacheIR (`GuardToInt32`,
     `Int32NotResult`). It also attached 109 times for doubles, strings, booleans, null and
     undefined, which Lean reports as `notModeled`. Two identical runs recorded 139,327 and
