@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Record IC generator runs over jit-tests with Phoenix's recorder (phoenix-docs/README.md).
 #
-#   phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE] LABEL [KINDS]
-#                                     [-- JIT_TEST_ARGS...]
+#   phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE]
+#                                     [--record-types TYPES] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 #
 # - LABEL names the run, which goes in $PHOENIX_RUNS/<date>-LABEL. PHOENIX_RUNS defaults to
 #   phoenix-runs next to this worktree.
 # - KINDS is a comma-separated list of CacheKinds to record, e.g. UnaryArith. Without it, every
 #   kind is recorded.
+# - --record-types TYPES is a comma-separated list of the types of records to write, generator
+#   and compile. Without it, both are written. A replay run needs only compile records.
 # - Arguments after -- go to jit_test.py, e.g. test paths to run only those.
 # - --build arm records the 32-bit ARM shell, obj-js-arm, under QEMU's user mode, with the
 #   sysroot's libraries and QEMU_CPU (default cortex-a7). The default is x64, obj-js-x64.
@@ -20,7 +22,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,18s/^# \{0,1\}//p' "$0" >&2
+  sed -n '2,20s/^# \{0,1\}//p' "$0" >&2
   exit 2
 }
 
@@ -31,8 +33,14 @@ command_line=$(printf '%q ' "$0" "$@")
 backend=x64
 build=1
 replay=
+types=
 while [[ ${1:-} == --* && $1 != -- ]]; do
   case $1 in
+    --record-types)
+      [[ $# -ge 2 ]] || usage
+      types=$2
+      shift 2
+      ;;
     --build)
       [[ $# -ge 2 && ($2 == x64 || $2 == arm) ]] || usage
       backend=$2
@@ -104,16 +112,20 @@ if ! grep -q '^#define JS_PHOENIX' "$OBJDIR/js/src/js-confdefs.h" 2>/dev/null; t
   exit 1
 fi
 
-# The recorder crashes on a kind that doesn't exist, and on a replay table it
-# can't read. Find out now, not in every test.
-recorder_env=(-u PHOENIX_RECORD_KINDS -u PHOENIX_REPLAY "${runner_env[@]}")
+# The recorder crashes on a kind or record type that doesn't exist, and on a
+# replay table it can't read. Find out now, not in every test.
+recorder_env=(-u PHOENIX_RECORD_KINDS -u PHOENIX_RECORD_TYPES -u PHOENIX_REPLAY
+  "${runner_env[@]}")
 if [[ -n $kinds ]]; then
   recorder_env+=(PHOENIX_RECORD_KINDS="$kinds")
+fi
+if [[ -n $types ]]; then
+  recorder_env+=(PHOENIX_RECORD_TYPES="$types")
 fi
 if [[ -n $replay ]]; then
   recorder_env+=(PHOENIX_REPLAY="$replay")
 fi
-if [[ -n $kinds || -n $replay ]]; then
+if [[ -n $kinds || -n $types || -n $replay ]]; then
   probe=$(mktemp -d)
   if ! (ulimit -c 0 && env "${recorder_env[@]}" PHOENIX_RECORD="$probe" "$JS" --baseline-eager \
     -e 'for (var i = 0; i < 2; i++) ~i' >/dev/null 2>"$probe/stderr") 2>/dev/null; then
