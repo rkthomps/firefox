@@ -68,6 +68,18 @@ Substitute mode is built ([docs/substitution.md](docs/substitution.md)). Left to
 - **Check that substituted code runs**, not only that it's compiled. `corpus.py replay` counts
   compilations; a stub that's attached but never entered again tests nothing. Reading the
   stubs' `enteredCount_` would tell.
+- **Substitute only where the table's configuration holds.** Replay refuses to start with IC
+  frame pointers on, but otherwise substitutes in any process: one with Spectre mitigations on
+  (`--spectre-mitigations=on`: 15 processes of the identity replay run, in `atomics/bigint-*.js`
+  and `ion/bug1433496.js`), or one whose test chose other CPU features (`--arm-hwcap` on ARM,
+  some without ARMv7; `--no-avx`, `--no-sse4` or `--no-ssse3` on x64, `--no-avx` for every test
+  in `wasm/`: see `armFlags` and `x86CPUInfo` in [docs/recorder.md](docs/recorder.md)). C++
+  would emit other code there for an op that reads the option or the feature. Harmless while no
+  op Lean models reads one (`cachet-lean`'s driver leaves those processes out of its counts).
+  Agreed design (2026-11-10): Lean defines which configurations are in scope, with the CPU
+  features modeled in the translated compiler, so the scope is explicit; a replay table states
+  the configuration it was made for, and the hook substitutes only in processes whose
+  `jitOptions`, `armFlags` or `x86CPUInfo` match it.
 
 ## Provenance of recorded runs (low priority)
 
