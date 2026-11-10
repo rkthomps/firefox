@@ -33,8 +33,9 @@ set.
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type. This is version 4. Earlier
+Every line has `v`, the format's version, and `record`, its type. This is version 5. Earlier
 versions:
+- 4 had no `x86CPUInfo` in x86's and x64's process records;
 - 3 wrote CacheIR as text, `SpewCacheIROpsAsAOT`'s (the ahead-of-time IC corpus's serializer),
   in `cacheir.aot`, in place of `cacheir.writer`. Recording the writer's state took the
   serializer out of the recorder's path: it gave the three bugs in [bug-fixes/](../bug-fixes/),
@@ -48,7 +49,7 @@ The first line of each process's records, written when the recorder starts, at t
 Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
 ```json
-{"v":4,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
+{"v":5,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
  "build":{"backend":"arm","debug":true,"simulator":false,
           "armFlags":{"HasARMv7":true,"HasMOVWT":true,"HasLDSTREXBHD":true,"HasDMBDSBISB":true,"HasVFP":true,
                       "Has32DP":true,"HasVFPv3":true,"HasVFPv4":true,"HasNEON":true,"HasIDIV":true,
@@ -73,7 +74,17 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
     `basic/bug1870747.js`, `basic/bug1875363.js`, `ion/bug1870756.js`,
     `auto-regress/bug1879939.js` and `wasm/unsupported/requires-armv7.js`;
     `--arm-hwcap=armv7,vfp` in `wasm/arm-hwcap-madness.js`): 6 of 14,146 processes on
-    2026-11-09, so filter on `armFlags` before comparing with a model of one CPU.
+    2026-11-09.
+  - `x86CPUInfo`, on x86 and x64 only: each of `CPUInfo`'s queries, by its name. The JIT reads
+    the CPU's features with `cpuid` at startup, so they're this machine's unless an option turns
+    some off. On 2026-11-10 this machine had all of them, AVX included (this build enables AVX
+    for the JIT, `ENABLE_JIT_AVX`). Some jit-tests turn them off: `--no-sse4`, which turns off
+    AVX too, in `ion/rinstructions-no-sse4.js`, `typedarray/uint8clamped-round-half-to-even.js`,
+    `warp/float32-round-int32-min.js` and `wasm/regress/bug1507314.js`; `--no-ssse3` in
+    `regexp/non-ssse3.js`; and `--no-avx` in `regexp/non-avx.js` and three `wasm/gc/` tests, and
+    as an extra run of every test in `wasm/` (`test-also` in its `directives.txt`).
+
+    So filter on `armFlags` or `x86CPUInfo` before comparing with a model of one CPU.
 - `jitOptions`: the `JitOptions` that change the code the compiler emits for some stubs.
 - `replay`: the replay table's path (`PHOENIX_REPLAY`), or `null`.
 
