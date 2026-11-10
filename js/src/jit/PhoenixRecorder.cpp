@@ -20,6 +20,8 @@
 
 #if defined(JS_CODEGEN_ARM)
 #  include "jit/arm/Architecture-arm.h"
+#elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+#  include "jit/Assembler.h"
 #endif
 
 using namespace js;
@@ -27,7 +29,7 @@ using namespace js::jit;
 using namespace js::jit::phoenix;
 
 // The version of the record format, in every record's "v".
-static constexpr int RecordVersion = 4;
+static constexpr int RecordVersion = 5;
 
 // Records give these enums by number, so a renumbering must not go unnoticed.
 static_assert(uint8_t(StubField::Type::Limit) == 17);
@@ -58,7 +60,8 @@ static constexpr const char* BackendName = "none";
 static const char* Bool(bool b) { return b ? "true" : "false"; }
 
 // The build that wrote the records: its backend, whether it's a debug build or
-// a simulator's, and on ARM the CPU features ARMFlags read at startup.
+// a simulator's, and the CPU features the JIT read at startup (ARMFlags on
+// ARM, CPUInfo on x86 and x64).
 static void WriteBuild(GenericPrinter& out) {
 #ifdef DEBUG
   constexpr bool debug = true;
@@ -86,6 +89,20 @@ static void WriteBuild(GenericPrinter& out) {
       Bool(ARMFlags::HasNEON()), Bool(ARMFlags::HasIDIV()),
       Bool(ARMFlags::HasFPHalfPrecision()), Bool(ARMFlags::HasAlignmentFault()),
       Bool(ARMFlags::UseHardFpABI()));
+#elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+  out.printf(
+      ",\"x86CPUInfo\":{\"IsSSE2Present\":%s,\"IsSSE3Present\":%s,"
+      "\"IsSSSE3Present\":%s,\"IsSSE41Present\":%s,\"IsSSE42Present\":%s,"
+      "\"IsPOPCNTPresent\":%s,\"IsBMI1Present\":%s,\"IsBMI2Present\":%s,"
+      "\"IsLZCNTPresent\":%s,\"IsAVXPresent\":%s,\"IsAVX2Present\":%s,"
+      "\"IsFMAPresent\":%s,\"IsF16CPresent\":%s}",
+      Bool(CPUInfo::IsSSE2Present()), Bool(CPUInfo::IsSSE3Present()),
+      Bool(CPUInfo::IsSSSE3Present()), Bool(CPUInfo::IsSSE41Present()),
+      Bool(CPUInfo::IsSSE42Present()), Bool(CPUInfo::IsPOPCNTPresent()),
+      Bool(CPUInfo::IsBMI1Present()), Bool(CPUInfo::IsBMI2Present()),
+      Bool(CPUInfo::IsLZCNTPresent()), Bool(CPUInfo::IsAVXPresent()),
+      Bool(CPUInfo::IsAVX2Present()), Bool(CPUInfo::IsFMAPresent()),
+      Bool(CPUInfo::IsF16CPresent()));
 #endif
   out.put("}");
 }
