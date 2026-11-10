@@ -4,8 +4,10 @@
   corpus.py dedupe RECORDS_DIR
       Merge RECORDS_DIR/<pid>.jsonl into RECORDS_DIR/unique.jsonl, one line per
       distinct generator record, with how many times it occurred, where (the
-      IC's source locations) and in which tests. Then print a summary by kind,
-      stub name and the tags of the Value inputs.
+      IC's source locations) and in which tests, and into
+      RECORDS_DIR/unique-compile.jsonl, one line per distinct compile record
+      (see below). Then print a summary by kind, stub name and the tags of the
+      Value inputs.
 
   corpus.py tests RECORDS_DIR --stub NAME [--tags TAG,TAG,...]
       Print the tests whose records have stub name NAME (and, with --tags,
@@ -16,16 +18,25 @@
       replay table did with them, and list the stubs whose code was
       substituted, with how many tests compiled each.
 
-Records are identical when they're equal apart from "pid" and "loc". A
-record's test is the script its process ran, from the process record that
-starts each run's lines: the last "-f" or "--module" argument.
+Generator records are identical when they're equal apart from "pid" and
+"loc". Compile records are identical when they're equal apart from "pid",
+what belongs to the stub that triggered the compilation rather than to the
+code ("stubName", and the writer's "typeData"), and their code's bytes, but
+with the same length, and with the configuration of their process ("build"
+and "jitOptions"). Embedded addresses make the bytes differ from process to
+process, so each line has the first record's bytes, and the spans of bytes
+where some other record differs from them. A record's test is the script its
+process ran, from the process record that starts each run's lines: the last
+"-f" or "--module" argument.
 """
 
 import argparse
 import collections
+import hashlib
 import json
 import pathlib
 import sys
+from dataclasses import dataclass, field
 from typing import Any
 
 # A record, or an entry of unique.jsonl, as parsed from JSON (phoenix-docs/docs/recorder.md).
@@ -54,11 +65,75 @@ def test_of(argv: list[str]) -> str | None:
     return test
 
 
+@dataclass
+class CompileEntry:
+    """The compile records of one line of unique-compile.jsonl."""
+
+    body: Record
+    first_code: str
+    varying: int = 0  # the bits where some record's code differs from first_code
+    codes: set[bytes] = field(default_factory=set[bytes])  # digests of the distinct codes
+    count: int = 0
+    stub_names: set[str | None] = field(default_factory=set[str | None])
+    type_datas: set[int] = field(default_factory=set[int])
+    tests: set[str] = field(default_factory=set[str])
+
+
+def compile_body(record: Record, config: Record) -> Record:
+    """A compile record's key: the record without what varies by stub or by process."""
+    code = {k: v for k, v in record["code"].items() if k != "bytes"}
+    code["length"] = len(record["code"]["bytes"]) // 2
+    cacheir = record["cacheir"]
+    if cacheir is not None:
+        writer = {k: v for k, v in cacheir["writer"].items() if k != "typeData"}
+        cacheir = {**cacheir, "writer": writer}
+    return {
+        "kind": record["kind"],
+        "cacheir": cacheir,
+        "replay": record["replay"],
+        "code": code,
+        "config": config,
+    }
+
+
+def byte_spans(bits: int, length: int) -> list[list[int]]:
+    """The [start, end) spans of the bytes |bits| has a bit in, |bits| being |length| bytes."""
+    spans: list[list[int]] = []
+    for i, byte in enumerate(bits.to_bytes(length, "big")):
+        if not byte:
+            continue
+        if spans and spans[-1][1] == i:
+            spans[-1][1] = i + 1
+        else:
+            spans.append([i, i + 1])
+    return spans
+
+
+def compile_line(entry: CompileEntry) -> Record:
+    body = entry.body
+    length = body["code"]["length"]
+    code = {k: v for k, v in body["code"].items() if k != "length"}
+    code["bytes"] = entry.first_code
+    code["varying"] = byte_spans(entry.varying, length)
+    return {
+        **body,
+        "code": code,
+        "stubNames": sorted(entry.stub_names, key=lambda name: (name is None, name or "")),
+        "typeDatas": sorted(entry.type_datas),
+        "distinctCodes": len(entry.codes),
+        "count": entry.count,
+        "tests": sorted(entry.tests),
+    }
+
+
 def dedupe(records_dir: pathlib.Path) -> None:
     unique: dict[str, Record] = {}
+    unique_compile: dict[str, CompileEntry] = {}
     total = 0
+    total_compile = 0
     for path in sorted(records_dir.glob("[0-9]*.jsonl")):
         test = None
+        config: Record = {}
         with path.open() as f:
             for lineno, line in enumerate(f, 1):
                 try:
@@ -68,6 +143,24 @@ def dedupe(records_dir: pathlib.Path) -> None:
                     continue
                 if record["record"] == "process":
                     test = test_of(record["argv"])
+                    config = {"build": record.get("build"), "jitOptions": record.get("jitOptions")}
+                    continue
+                if record["record"] == "compile":
+                    total_compile += 1
+                    body = compile_body(record, config)
+                    code = record["code"]["bytes"]
+                    entry_c = unique_compile.setdefault(
+                        json.dumps(body, sort_keys=True), CompileEntry(body, code)
+                    )
+                    entry_c.count += 1
+                    entry_c.codes.add(hashlib.blake2b(code.encode(), digest_size=16).digest())
+                    if code != entry_c.first_code:
+                        entry_c.varying |= int(code, 16) ^ int(entry_c.first_code, 16)
+                    entry_c.stub_names.add(record["stubName"])
+                    if record["cacheir"] is not None:
+                        entry_c.type_datas.add(record["cacheir"]["writer"]["typeData"])
+                    if test:
+                        entry_c.tests.add(test)
                     continue
                 if record["record"] != "generator":
                     continue
@@ -87,8 +180,16 @@ def dedupe(records_dir: pathlib.Path) -> None:
         for entry in unique.values():
             entry = {**entry, "locs": sorted(entry["locs"]), "tests": sorted(entry["tests"])}
             out.write(json.dumps(entry) + "\n")
+    compile_path = records_dir / "unique-compile.jsonl"
+    with compile_path.open("w") as out:
+        for entry_c in unique_compile.values():
+            out.write(json.dumps(compile_line(entry_c)) + "\n")
 
     print(f"{total} records, {len(unique)} distinct, written to {out_path}")
+    print(
+        f"{total_compile} compile records, {len(unique_compile)} distinct, "
+        f"written to {compile_path}"
+    )
     summary: collections.Counter[tuple[str, str, tuple[str, ...]]] = collections.Counter()
     for entry in unique.values():
         name = entry["stubName"] or f"({entry['decision']})"

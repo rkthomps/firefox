@@ -17,7 +17,7 @@
 #   phoenix-docs/docs/substitution.md). The table is copied into the run.
 #
 # It builds the shell first (skip with --no-build), runs jit-tests with --no-ion
-# --baseline-eager, and dedupes the records into records/unique.jsonl.
+# --baseline-eager, and dedupes the records into records/unique.jsonl and unique-compile.jsonl.
 
 set -euo pipefail
 
@@ -168,7 +168,7 @@ if ((status != 0 && status != 2)); then
 fi
 
 python3 "$ROOT/phoenix-tools/corpus.py" dedupe "$run/records" >"$run/summary.txt"
-head -1 "$run/summary.txt"
+head -2 "$run/summary.txt"
 echo "Summary by kind, stub and input types: $run/summary.txt"
 if [[ -n $replay ]]; then
   python3 "$ROOT/phoenix-tools/corpus.py" replay "$run/records" | tee "$run/replay-summary.txt"
