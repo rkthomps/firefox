@@ -168,12 +168,49 @@ static void WriteProcessRecord(FILE* file) {
   out.flush();
 }
 
-// The process's record file, and the kinds to record, from PHOENIX_RECORD and
-// PHOENIX_RECORD_KINDS. A misspelt setting crashes, rather than silently
-// recording nothing.
+static const char* const RecordTypeNames[] = {"generator", "compile"};
+static_assert(std::size(RecordTypeNames) == size_t(RecordType::Limit));
+
+// Sets |chosen[i]| for each of |names| that the comma-separated list in the
+// environment variable |var| names, or for all of them if |var| isn't set. A
+// name that isn't one of |names|, which are |what|s, crashes.
+static void ChooseNames(const char* var, const char* what,
+                        const char* const* names, size_t numNames,
+                        bool* chosen) {
+  const char* name = getenv(var);
+  if (!name) {
+    for (size_t i = 0; i < numNames; i++) {
+      chosen[i] = true;
+    }
+    return;
+  }
+  while (*name) {
+    size_t len = strcspn(name, ",");
+    bool found = false;
+    for (size_t i = 0; i < numNames; i++) {
+      if (strlen(names[i]) == len && strncmp(names[i], name, len) == 0) {
+        chosen[i] = true;
+        found = true;
+      }
+    }
+    if (!found) {
+      fprintf(stderr, "%s: no %s named '%.*s'\n", var, what, int(len), name);
+      MOZ_CRASH("PHOENIX_RECORD_KINDS or _TYPES: unknown name");
+    }
+    name += len;
+    if (*name == ',') {
+      name++;
+    }
+  }
+}
+
+// The process's record file, and the kinds and types of records to write, from
+// PHOENIX_RECORD, PHOENIX_RECORD_KINDS and PHOENIX_RECORD_TYPES. A misspelt
+// setting crashes, rather than silently recording nothing.
 struct Recorder {
   FILE* file = nullptr;
   bool recordKind[NumCacheKinds] = {};
+  bool recordType[size_t(RecordType::Limit)] = {};
 
   Recorder();
 };
@@ -193,34 +230,10 @@ Recorder::Recorder() {
   }
   WriteProcessRecord(file);
 
-  const char* kinds = getenv("PHOENIX_RECORD_KINDS");
-  if (!kinds) {
-    for (bool& record : recordKind) {
-      record = true;
-    }
-    return;
-  }
-  const char* name = kinds;
-  while (*name) {
-    size_t len = strcspn(name, ",");
-    bool found = false;
-    for (size_t i = 0; i < NumCacheKinds; i++) {
-      if (strlen(CacheKindNames[i]) == len &&
-          strncmp(CacheKindNames[i], name, len) == 0) {
-        recordKind[i] = true;
-        found = true;
-      }
-    }
-    if (!found) {
-      fprintf(stderr, "PHOENIX_RECORD_KINDS: no CacheKind named '%.*s'\n",
-              int(len), name);
-      MOZ_CRASH("PHOENIX_RECORD_KINDS: unknown CacheKind");
-    }
-    name += len;
-    if (*name == ',') {
-      name++;
-    }
-  }
+  ChooseNames("PHOENIX_RECORD_KINDS", "CacheKind", CacheKindNames,
+              NumCacheKinds, recordKind);
+  ChooseNames("PHOENIX_RECORD_TYPES", "record type", RecordTypeNames,
+              size_t(RecordType::Limit), recordType);
 }
 
 static Recorder& GetRecorder() {
@@ -228,9 +241,10 @@ static Recorder& GetRecorder() {
   return recorder;
 }
 
-bool phoenix::ShouldRecord(CacheKind kind) {
+bool phoenix::ShouldRecord(RecordType type, CacheKind kind) {
   Recorder& recorder = GetRecorder();
-  return recorder.file && recorder.recordKind[size_t(kind)];
+  return recorder.file && recorder.recordType[size_t(type)] &&
+         recorder.recordKind[size_t(kind)];
 }
 
 static const char* ModeName(ICState::Mode mode) {
