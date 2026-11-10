@@ -1,36 +1,43 @@
 #!/usr/bin/env bash
 # Record IC generator runs over jit-tests with Phoenix's recorder (phoenix-docs/README.md).
 #
-#   phoenix-tools/record-jit-tests.sh [--no-build] [--replay TABLE] LABEL [KINDS] [-- JIT_TEST_ARGS...]
+#   phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE] LABEL [KINDS]
+#                                     [-- JIT_TEST_ARGS...]
 #
 # - LABEL names the run, which goes in $PHOENIX_RUNS/<date>-LABEL. PHOENIX_RUNS defaults to
 #   phoenix-runs next to this worktree.
 # - KINDS is a comma-separated list of CacheKinds to record, e.g. UnaryArith. Without it, every
 #   kind is recorded.
 # - Arguments after -- go to jit_test.py, e.g. test paths to run only those.
+# - --build arm records the 32-bit ARM shell, obj-js-arm, under QEMU's user mode, with the
+#   sysroot's libraries and QEMU_CPU (default cortex-a7). The default is x64, obj-js-x64.
 # - --replay TABLE replaces the code of the stubs in TABLE (PHOENIX_REPLAY, see
 #   phoenix-docs/docs/substitution.md). The table is copied into the run.
 #
-# It builds obj-js-x64 first (skip with --no-build), runs jit-tests with --no-ion
+# It builds the shell first (skip with --no-build), runs jit-tests with --no-ion
 # --baseline-eager, and dedupes the records into records/unique.jsonl.
 
 set -euo pipefail
 
 usage() {
-  sed -n '2,15s/^# \{0,1\}//p' "$0" >&2
+  sed -n '2,18s/^# \{0,1\}//p' "$0" >&2
   exit 2
 }
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-OBJDIR=$ROOT/obj-js-x64
-JS=$OBJDIR/dist/bin/js
 RUNS=${PHOENIX_RUNS:-$(dirname "$ROOT")/phoenix-runs}
 command_line=$(printf '%q ' "$0" "$@")
 
+backend=x64
 build=1
 replay=
 while [[ ${1:-} == --* && $1 != -- ]]; do
   case $1 in
+    --build)
+      [[ $# -ge 2 && ($2 == x64 || $2 == arm) ]] || usage
+      backend=$2
+      shift 2
+      ;;
     --no-build)
       build=0
       shift
@@ -56,6 +63,26 @@ if [[ $# -ge 1 ]]; then
   shift
 fi
 
+OBJDIR=$ROOT/obj-js-$backend
+JS=$OBJDIR/dist/bin/js
+# What the shell runs under: nothing for x64, QEMU for ARM (phoenix-docs/docs/backends.md).
+runner_env=()
+if [[ $backend == arm ]]; then
+  sysroot=$HOME/.mozbuild/sysroot-armhf-linux-gnu
+  if [[ ! -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
+    echo "QEMU isn't registered for ARM programs: install qemu-user and qemu-user-binfmt" >&2
+    exit 1
+  fi
+  if [[ ! -e $sysroot/lib/ld-linux-armhf.so.3 ]]; then
+    echo "$sysroot has no ARM loader: make it with phoenix-tools/sysroot.py --arch armhf" >&2
+    exit 1
+  fi
+  runner_env=(QEMU_LD_PREFIX="$sysroot" QEMU_CPU="${QEMU_CPU:-cortex-a7}")
+  # jit_test.py's default of 150 s is too short for the slowest tests under QEMU, which take up
+  # to 384 s. A --timeout after -- overrides it.
+  set -- --timeout=600 "$@"
+fi
+
 run=$RUNS/$(date +%F)-$label
 if [[ -e $run ]]; then
   echo "$run already exists: pick another label" >&2
@@ -66,7 +93,7 @@ build_log=$ROOT/artifacts/record-jit-tests-build.log
 if ((build)); then
   echo "Building $OBJDIR (log: $build_log)"
   mkdir -p "$ROOT/artifacts"
-  if ! (cd "$ROOT" && MOZCONFIG=$ROOT/mozconfig-js-x64 ./mach build) >"$build_log" 2>&1; then
+  if ! (cd "$ROOT" && MOZCONFIG=$ROOT/mozconfig-js-$backend ./mach build) >"$build_log" 2>&1; then
     echo "The build failed: see $build_log" >&2
     exit 1
   fi
@@ -79,7 +106,7 @@ fi
 
 # The recorder crashes on a kind that doesn't exist, and on a replay table it
 # can't read. Find out now, not in every test.
-recorder_env=(-u PHOENIX_RECORD_KINDS -u PHOENIX_REPLAY)
+recorder_env=(-u PHOENIX_RECORD_KINDS -u PHOENIX_REPLAY "${runner_env[@]}")
 if [[ -n $kinds ]]; then
   recorder_env+=(PHOENIX_RECORD_KINDS="$kinds")
 fi
