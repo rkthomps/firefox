@@ -29,7 +29,8 @@ model against the real SpiderMonkey.
   `cachet-lean`'s provenance checker: running it, its dependencies, and its format.
 - [docs/backends.md](docs/backends.md): cross-compiling SpiderMonkey for other architectures:
   sysroots (`sysroot.py`), Rust's targets, and the ARM baseline.
-- [docs/branches.md](docs/branches.md): the branches, and how to add a bug fix or move the pin.
+- [docs/branches.md](docs/branches.md): the branches, and how to add a bug fix, move the pin, or
+  push them.
 - [docs/spidermonkey.md](docs/spidermonkey.md): the SpiderMonkey code this effort hooks into,
   the builds, and their pitfalls.
 
