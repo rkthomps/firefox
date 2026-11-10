@@ -201,10 +201,37 @@ The code is from a debug build, so it has debug-only checks (e.g. an `int3` afte
 
 ### Deduplicated records
 
-`phoenix-tools/corpus.py dedupe` writes `unique.jsonl` next to the records: one line per distinct
-generator record, i.e. records equal apart from `pid` and `loc`. Each is the record without
-those two fields, plus `count` (how many records it stands for), `locs` (their `file:line:column`
-locations) and `tests` (the tests they came from, from the process records).
+`phoenix-tools/corpus.py dedupe` derives two files from the records (`<pid>.jsonl`, which it
+doesn't change), and writes them next to them. `record-jit-tests.sh` runs it at the end of a run.
+
+**`unique.jsonl`**: one line per distinct generator record, i.e. records equal apart from `pid`
+and `loc`. Each is the record without those two fields, plus `count` (how many records it stands
+for), `locs` (their `file:line:column` locations) and `tests` (the tests they came from, from the
+process records).
+
+**`unique-compile.jsonl`**: one line per distinct compile record, for looking a stub's code up
+without scanning every record (added on 2026-11-10, for `cachet-lean`'s `stub-code`). Records are
+the same line when they're equal but for:
+- `pid`;
+- what belongs to the stub whose attaching triggered the compilation, not to the code: `stubName`
+  and the writer's `typeData`. Stubs with other names can have the same CacheIR (`Int32Pos` and
+  `Int32ToNumeric`, 10,092 compilations on x64 on 2026-11-10);
+- the code's bytes, as long as their length is the same. Code embeds addresses of its process
+  (64-bit immediates on x64, where ASLR moves the shell and the heap; `movw`/`movt` pairs on ARM),
+  and on ARM a debug build's `BKPT` immediates count the breakpoints the process emitted before
+  (`Assembler::as_bkpt`), so the same stub's bytes differ from process to process.
+
+and the line keeps its process's configuration, since the same CacheIR can compile to other code
+under another one. Each line is a record without `pid` and `stubName`, `typeData` left out of
+`cacheir.writer`, and:
+- `config`: the process record's `build` and `jitOptions`;
+- `code.bytes`: the first record's bytes, in file order, and `code.varying`: the `[start, end)`
+  spans of bytes where some record of the line differs from them, `[]` if none does. It's what
+  was seen to vary in this run, not all that can: a stub compiled once has `[]` even if it embeds
+  an address;
+- `stubNames` and `typeDatas`: all of the records', sorted;
+- `distinctCodes`: how many different `code.bytes` the line stands for, `count` how many records,
+  and `tests` the tests they came from.
 
 ## Not recorded yet
 

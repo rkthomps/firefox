@@ -120,7 +120,8 @@ A run's directory holds:
 | File | What it is |
 |---|---|
 | `records/<pid>.jsonl` | the records of one shell process: its command line, then one line per generator run |
-| `records/unique.jsonl` | the distinct records, each with its count, source locations and tests |
+| `records/unique.jsonl` | the distinct generator records, each with its count, source locations and tests |
+| `records/unique-compile.jsonl` | the distinct compile records, each with its count, tests, and where its code varies ([docs/recorder.md](docs/recorder.md)) |
 | `summary.txt` | the number of records, by kind, stub name and input types |
 | `jit-test.log`, `main_raw.log` | `jit_test.py`'s output |
 | `failures.txt` | the tests that failed |
@@ -165,7 +166,8 @@ python3 phoenix-tools/corpus.py dedupe RUN/records
 python3 phoenix-tools/corpus.py tests RUN/records --stub UnaryArith.BitwiseBitNot --tags int32,int32
 ```
 
-- `dedupe` writes `unique.jsonl` and prints the summary. `record-jit-tests.sh` runs it already.
+- `dedupe` writes `unique.jsonl` and `unique-compile.jsonl`, and prints the summary.
+  `record-jit-tests.sh` runs it already.
 - `tests` lists the tests that produced a stub, optionally only for those input types (the
   `Value` inputs' tags, in order).
 
