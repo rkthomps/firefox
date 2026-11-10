@@ -19,12 +19,73 @@
 #include "vm/BytecodeUtil.h"
 #include "vm/JSScript.h"
 
+#if defined(JS_CODEGEN_ARM)
+#  include "jit/arm/Architecture-arm.h"
+#endif
+
 using namespace js;
 using namespace js::jit;
 using namespace js::jit::phoenix;
 
 // The version of the record format, in every record's "v".
-static constexpr int RecordVersion = 2;
+static constexpr int RecordVersion = 3;
+
+#if defined(JS_CODEGEN_X86)
+static constexpr const char* BackendName = "x86";
+#elif defined(JS_CODEGEN_X64)
+static constexpr const char* BackendName = "x64";
+#elif defined(JS_CODEGEN_ARM)
+static constexpr const char* BackendName = "arm";
+#elif defined(JS_CODEGEN_ARM64)
+static constexpr const char* BackendName = "arm64";
+#elif defined(JS_CODEGEN_MIPS64)
+static constexpr const char* BackendName = "mips64";
+#elif defined(JS_CODEGEN_LOONG64)
+static constexpr const char* BackendName = "loong64";
+#elif defined(JS_CODEGEN_RISCV64)
+static constexpr const char* BackendName = "riscv64";
+#elif defined(JS_CODEGEN_WASM32)
+static constexpr const char* BackendName = "wasm32";
+#elif defined(JS_CODEGEN_NONE)
+static constexpr const char* BackendName = "none";
+#else
+#  error "Phoenix: name this backend in the process record"
+#endif
+
+static const char* Bool(bool b) { return b ? "true" : "false"; }
+
+// The build that wrote the records: its backend, whether it's a debug build or
+// a simulator's, and on ARM the CPU features ARMFlags read at startup.
+static void WriteBuild(GenericPrinter& out) {
+#ifdef DEBUG
+  constexpr bool debug = true;
+#else
+  constexpr bool debug = false;
+#endif
+#ifdef JS_SIMULATOR
+  constexpr bool simulator = true;
+#else
+  constexpr bool simulator = false;
+#endif
+  out.printf("\"build\":{\"backend\":\"%s\",\"debug\":%s,\"simulator\":%s",
+             BackendName, Bool(debug), Bool(simulator));
+#if defined(JS_CODEGEN_ARM)
+  out.printf(
+      ",\"armFlags\":{\"HasARMv7\":%s,\"HasMOVWT\":%s,\"HasLDSTREXBHD\":%s,"
+      "\"HasDMBDSBISB\":%s,\"HasVFP\":%s,\"Has32DP\":%s,\"HasVFPv3\":%s,"
+      "\"HasVFPv4\":%s,\"HasNEON\":%s,\"HasIDIV\":%s,"
+      "\"HasFPHalfPrecision\":%s,\"HasAlignmentFault\":%s,"
+      "\"UseHardFpABI\":%s}",
+      Bool(ARMFlags::HasARMv7()), Bool(ARMFlags::HasMOVWT()),
+      Bool(ARMFlags::HasLDSTREXBHD()), Bool(ARMFlags::HasDMBDSBISB()),
+      Bool(ARMFlags::HasVFP()), Bool(ARMFlags::Has32DP()),
+      Bool(ARMFlags::HasVFPv3()), Bool(ARMFlags::HasVFPv4()),
+      Bool(ARMFlags::HasNEON()), Bool(ARMFlags::HasIDIV()),
+      Bool(ARMFlags::HasFPHalfPrecision()), Bool(ARMFlags::HasAlignmentFault()),
+      Bool(ARMFlags::UseHardFpABI()));
+#endif
+  out.put("}");
+}
 
 static void WriteJSONString(GenericPrinter& out, const char* s) {
   JSONEscape esc;
@@ -35,8 +96,8 @@ static void WriteJSONString(GenericPrinter& out, const char* s) {
 }
 
 // The first line of each record file: the process's command line, which tells
-// which test the records came from, the JIT options that change the code of
-// stubs, and the replay table.
+// which test the records came from, the build, the JIT options that change the
+// code of stubs, and the replay table.
 static void WriteProcessRecord(FILE* file) {
   Fprinter out(file);
   out.printf("{\"v\":%d,\"record\":\"process\",\"pid\":%d,\"argv\":[",
@@ -65,8 +126,10 @@ static void WriteProcessRecord(FILE* file) {
     }
     fclose(cmdline);
   }
+  out.put("],");
+  WriteBuild(out);
   out.printf(
-      "],\"jitOptions\":{\"icFramePointers\":%s,\"spectreIndexMasking\":%s,"
+      ",\"jitOptions\":{\"icFramePointers\":%s,\"spectreIndexMasking\":%s,"
       "\"spectreObjectMitigations\":%s,\"spectreStringMitigations\":%s,"
       "\"spectreValueMasking\":%s,\"spectreJitToCxxCalls\":%s},\"replay\":",
       JitOptions.enableICFramePointers ? "true" : "false",
