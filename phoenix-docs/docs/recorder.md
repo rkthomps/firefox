@@ -30,17 +30,17 @@ set.
 - `jit/BaselineCacheIRCompiler.{h,cpp}`: `compile()` notes the code offset where each op, the
   return and the failure paths begin, into a fixed array, so that it never allocates. The hook
   in `LookupOrCompileStub`, after `compile()`, records the compilation and substitutes code.
-- `jit/CacheIRSpewer.{h,cpp}`: the AOT serializer (`SpewCacheIROpsAsAOT`) is compiled under
-  `ENABLE_JS_AOT_ICS || JS_PHOENIX`. Two upstream bugs in it, which the recorder hit, are fixed
-  by `[BUG FIX]` commits, with reports in [bug-fixes/](../bug-fixes/):
-  [0001](../bug-fixes/0001-aot-spewer-typeofeq-operand.md) and
-  [0002](../bug-fixes/0002-aot-spewer-immutable-view-kind.md).
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type. This is version 3 (version 2
-had no `build` in process records; version 1 had no compile records, and no `jitOptions` or
-`replay`).
+Every line has `v`, the format's version, and `record`, its type. This is version 4. Earlier
+versions:
+- 3 wrote CacheIR as text, `SpewCacheIROpsAsAOT`'s (the ahead-of-time IC corpus's serializer),
+  in `cacheir.aot`, in place of `cacheir.writer`. Recording the writer's state took the
+  serializer out of the recorder's path: it gave the three bugs in [bug-fixes/](../bug-fixes/),
+  and Lean reads the bytes themselves. Changed on 2026-11-10;
+- 2 had no `build` in process records;
+- 1 had no compile records, and no `jitOptions` or `replay`.
 
 ### Process records
 
@@ -48,7 +48,7 @@ The first line of each process's records, written when the recorder starts, at t
 Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
 ```json
-{"v":3,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
+{"v":4,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
  "build":{"backend":"arm","debug":true,"simulator":false,
           "armFlags":{"HasARMv7":true,"HasMOVWT":true,"HasLDSTREXBHD":true,"HasDMBDSBISB":true,"HasVFP":true,
                       "Has32DP":true,"HasVFPv3":true,"HasVFPv4":true,"HasNEON":true,"HasIDIV":true,
@@ -82,15 +82,16 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 One per generator run, e.g. for `~0`:
 
 ```json
-{"v":2,"record":"generator","pid":3260920,"kind":"UnaryArith",
+{"v":4,"record":"generator","pid":3260920,"kind":"UnaryArith",
  "loc":{"file":"phoenix-tools/tests/bitnot.js","line":5,"column":10,"pcOffset":3,"op":"BitNot"},
  "state":{"mode":"Specialized","isFirstStub":true,"numOptimizedStubs":0},
  "args":[{"type":"JSOp","name":"BitNot","byte":20},
          {"type":"Value","bits":"0xfff8800000000000","tag":"int32"},
          {"type":"Value","bits":"0xfff88000ffffffff","tag":"int32"}],
  "decision":"Attach","attached":true,"stubName":"UnaryArith.BitwiseBitNot","writerFailed":false,
- "cacheir":{"aot":"UnaryArith, 1, 1, 2, JSVAL_TYPE_UNKNOWN, 0, , LASTUSED(1) , OP(GuardToInt32) ID(0) OP(Int32NotResult) ID(0) ",
-            "bytes":"0b00006c0100","stubFields":[]}}
+ "cacheir":{"bytes":"0b00006c0100",
+            "writer":{"numInputOperands":1,"numOperandIds":1,"numInstructions":2,"operandLastUsed":[1],
+                      "stubDataSize":0,"typeData":32,"stubFields":[]}}}
 ```
 
 - `kind`: the generator's `CacheKind`.
@@ -115,15 +116,35 @@ One per generator run, e.g. for `~0`:
 - `stubName`: the generator's `stubName_`, set by `trackAttached`. It tells which `tryAttach*`
   attached the stub, e.g. `UnaryArith.BitwiseBitNot`. `null` if `trackAttached` wasn't called.
 - `writerFailed`: whether the writer ran out of memory or grew too large.
-- `cacheir`: `null` when the writer failed or is empty. Otherwise:
-  - `aot`: `SpewCacheIROpsAsAOT`'s text without its final newline. The fields are, in order: the
-    kind, `numInputOperands`, `numOperandIds`, `numInstructions`, `typeData`, `stubDataSize`, the
-    stub fields' types, `operandLastUsed`, and the ops. (The comment above
-    `SpewCacheIROpsAsAOT` lists `numOperandIds` before `numInputOperands`; the code prints them
-    the other way round.) This is what the Lean serializer should print.
-  - `bytes`: the CacheIR bytecode in hex, which with the kind is what the stub code cache is
-    keyed on.
-  - `stubFields`: each stub field's type and raw value, which the AOT text leaves out.
+- `cacheir`: `null` when the writer failed or is empty. Otherwise the `CacheIRWriter`
+  (`jit/CacheIRWriter.h`):
+  - `bytes`: its buffer, the CacheIR bytecode, in hex. With the kind, it's what the stub code
+    cache is keyed on. Ops are numbered by the build: `CacheIROps.yaml` is preprocessed with its
+    defines, and two ops exist only under `JS_PUNBOX64`, so the int32 `~` stub is `0b00006c0100`
+    on x64 and `0b00006a0100` on 32-bit ARM.
+  - `writer`: the writer's state that the bytes don't hold, all of what the compiler reads from
+    the writer but the bytes:
+    - `numInputOperands`, `numOperandIds` (inputs included) and `numInstructions`;
+    - `operandLastUsed`: the entries of `operandLastUsed_`, as many as it has. `writeOperandId`
+      resizes it up to the operand it writes, zero-filling, so it covers the operands up to the
+      last one an instruction mentions: one before that which no instruction mentions has 0, and
+      `operandIsDead` takes it as dead after instruction 0; one after it has no entry, and is
+      never dead. So the list can be shorter than `numOperandIds`, e.g. empty for a stub whose
+      one instruction mentions no operand
+      ([bug 0003](../bug-fixes/0003-aot-spewer-unused-operand.md)). The recorder reads it
+      through the public `operandIsDead` and `operandLastUsed`;
+    - `stubDataSize`;
+    - `typeData`: the `TypeData`'s `JSValueType`, as a number (`JSVAL_TYPE_UNKNOWN` is 32). It
+      belongs to the stub, not to the code: `AttachBaselineCacheIRStub` sets it on the stub, and
+      the compiler doesn't read it. So stubs with the same CacheIR can have different ones: a
+      `ToBool` stub's is 3 (undefined) or 4 (null) for the same bytes;
+    - `stubFields`: each stub field's `type`, as its `StubField::Type`'s number (`RawInt32` is 0,
+      …, `Double` 16), and its raw `value` in hex, e.g. `{"type":4,"value":"0x0000268d41e20fe0"}`
+      for a `WeakShape`.
+
+    Enums are written as numbers, not through name tables, which can miss an enumerator (bug
+    0002). `static_assert`s in the recorder stop the build if `StubField::Type` or
+    `JSVAL_TYPE_UNKNOWN` is renumbered.
 
 ### Compile records
 
@@ -131,9 +152,10 @@ One per compilation of a CacheIR by the baseline CacheIR compiler. A zone compil
 CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~` stub:
 
 ```json
-{"v":2,"record":"compile","pid":3260920,"kind":"UnaryArith","stubName":"UnaryArith.BitwiseBitNot",
- "cacheir":{"aot":"UnaryArith, 1, 1, 2, JSVAL_TYPE_UNKNOWN, 0, , LASTUSED(1) , OP(GuardToInt32) ID(0) OP(Int32NotResult) ID(0) ",
-            "bytes":"0b00006c0100"},
+{"v":4,"record":"compile","pid":1420431,"kind":"UnaryArith","stubName":"UnaryArith.BitwiseBitNot",
+ "cacheir":{"bytes":"0b00006c0100",
+            "writer":{"numInputOperands":1,"numOperandIds":1,"numInstructions":2,"operandLastUsed":[1],
+                      "stubDataSize":0,"typeData":32,"stubFields":[]}},
  "code":{"bytes":"834708014989cb…488b7f10ff270f0b",
          "ops":[{"op":"GuardToInt32","offset":4},{"op":"Int32NotResult","offset":24}],
          "tooManyOps":false,"returnOffset":64,"failurePathsOffset":65,
@@ -143,8 +165,9 @@ CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~
 
 - `stubName`: the name of the stub being attached when the code was compiled. Other stubs with
   the same CacheIR may have other names.
-- `cacheir`: as in generator records, without the stub fields' values, which belong to each stub,
-  not to the code.
+- `cacheir`: as in generator records, without the stub fields' values (but their types), which
+  belong to each stub, not to the code. `typeData` belongs to the stub too: here it's that of the
+  stub whose attaching compiled the code.
 - `code`: the C++ compiler's code, even when the replay table replaced it:
   - `bytes`: the instructions, from the code's start (`JitCode::raw()`), in hex;
   - `ops`: each CacheIR op and the offset where its code begins. An op's code runs to the next

@@ -166,7 +166,7 @@ python3 phoenix-tools/corpus.py tests RUN/records --stub UnaryArith.BitwiseBitNo
 To look at individual records, use `jq`, e.g.:
 
 ```
-jq -c 'select(.record=="generator") | [.args[1].tag, .stubName, .cacheir.aot]' RUN/records/*.jsonl
+jq -c 'select(.record=="generator") | [.args[1].tag, .stubName, .cacheir.bytes]' RUN/records/*.jsonl
 ```
 
 Generator records are the IC generators' runs, and compile records the compiler's code for each

@@ -55,11 +55,12 @@ compile records. The record format is in [recorder.md](recorder.md).
 **For goal 1b** (Lean's generator and compiler):
 
 1. For each distinct generator record, run Lean's generator on the recorded inputs (for
-   `UnaryArith`: `op`, `val`, `res`, as x64 boxed values). Compare its decision and stub name
+   `UnaryArith`: `op`, `val`, `res`, as boxed values in the build's boxing). Compare its decision and stub name
    with C++'s. A NoAction from Lean where C++'s stub name belongs to a `tryAttach*` Lean doesn't
    translate is out of coverage, not a mismatch.
-2. Where both attach, print Lean's `CacheIRWriter` as AOT text and compare it with the record's
-   `cacheir.aot`. Different text is a mismatch, and gets no table entry.
+2. Where both attach, compare Lean's `CacheIRWriter` with the record's `cacheir`: its buffer
+   with `cacheir.bytes`, and its state with `cacheir.writer`. A difference is a mismatch, and gets
+   no table entry.
 3. Where they're equal, compile Lean's CacheIR to x64 bytes, and write
    `<kind> <record's cacheir.bytes> <Lean's bytes>`. The key is C++'s CacheIR bytes, which is
    right because step 2 showed Lean's CacheIR is the same.
