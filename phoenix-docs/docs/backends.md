@@ -9,15 +9,15 @@ runs Android's tests on phones. A backend needs:
 2. **Rust's standard library for the target**, since the shell links Rust code (below);
 3. **a mozconfig** with `--target=…`, in [spidermonkey.md](spidermonkey.md);
 4. to run its shell, **a runner**: QEMU's user mode, which runs one program of another
-   architecture on this machine, or hardware. None is set up yet.
+   architecture on this machine (below), or hardware.
 
 The USR index ([usr-index.md](usr-index.md)) needs only the first three: configure, the generated
 headers and the compile database. Nothing runs.
 
-| Backend | Sysroot | Rust target | Where it stands (2026-11-06) |
+| Backend | Sysroot | Rust target | Where it stands (2026-11-09) |
 |---|---|---|---|
 | x64 | Mozilla's `sysroot-x86_64-linux-gnu`, from `./mach bootstrap` | `x86_64-unknown-linux-gnu` | the recorder, and the index |
-| 32-bit ARM | `sysroot.py --arch armhf` (below) | `armv7-unknown-linux-gnueabihf`, installed | `mozconfig-js-arm` configured in `../firefox-phoenix`, not built, and the index |
+| 32-bit ARM | `sysroot.py --arch armhf` (below) | `armv7-unknown-linux-gnueabihf`, installed | the recorder (`obj-js-arm` here, run under QEMU), and the index (`obj-js-arm` in `../firefox-phoenix`, configured only) |
 
 Mozilla publishes sysroots for x86 (`sysroot-i686-linux-gnu`) and arm64 (`sysroot-aarch64-linux-gnu`)
 too, which `./mach bootstrap` fetches (`taskcluster/kinds/toolchain/sysroot.yml`). For the other
@@ -106,6 +106,116 @@ as instructions.
 Debian's keys weren't installed on this machine on 2026-11-06 (`sudo apt install
 debian-archive-keyring` installs them). That run checked the signature with the keyring package
 of the same snapshot, which tested the check but proves no more than `--no-signature-check`.
+
+## Running ARM's shell under QEMU
+
+QEMU's user mode (`qemu-user`) runs one ARM program on this machine: it translates the program's
+instructions to x86_64's, and its system calls to this kernel's. `qemu-user-binfmt` registers it
+with the kernel (`/proc/sys/fs/binfmt_misc/qemu-arm`), so an ARM program starts like any other,
+which is how jit-tests start the shell. Two variables tell it the rest:
+
+- `QEMU_LD_PREFIX=~/.mozbuild/sysroot-armhf-linux-gnu`: where the program's loader
+  (`/lib/ld-linux-armhf.so.3`) and libraries are. The sysroot has all that the shell links:
+  `libc`, `libm`, `libstdc++`, `libgcc_s` and `libz`.
+- `QEMU_CPU=cortex-a7`: the core it emulates, whose features the JIT reads at startup
+  (`ARMFlags::Init`, from `AT_HWCAP`). The default, `max`, has every feature. On 2026-11-09,
+  QEMU 10.2.1 reported:
+
+  | `QEMU_CPU` | Features (`AT_HWCAP`) |
+  |---|---|
+  | `max` (default) | VFP, VFPv3, VFPv4, NEON, IDIVA, IDIVT, VFPD32, FPHP |
+  | `cortex-a7`, `cortex-a15` | VFP, VFPv3, VFPv4, NEON, IDIVA, IDIVT, VFPD32 |
+  | `cortex-a9` | VFP, VFPv3, NEON, VFPD32: no IDIV, no VFPv4 |
+
+  The JIT reads VFPv3 (double constants), IDIV (`flexibleDivMod32`) and NEON where ARM's MASM
+  chooses code. `ARMHWCAP` overrides what it reads, in any build. The records use `cortex-a7`, a
+  Raspberry Pi 2's core (agreed on 2026-11-09), and each process record says what the JIT made of
+  it (`armFlags`, in [recorder.md](recorder.md)).
+
+The command is in the README's "Recording one script". Recording `bitnot.js` takes under a
+second. Two runs of the same script gave the same stub bytes but for one
+heap address: QEMU loads the shell at the same address each time. The shell needs no library
+beyond the sysroot's (no `libatomic`, which the simulator's x86 shell links).
+
+**jit-tests under QEMU** (2026-11-09, recording every kind, `record-jit-tests.sh --build arm`):
+19 minutes for all of them, 14,144 test runs passing, 5.3 million generator and 964,372 compile
+records (8.5 GB). The two trial-inlining tests failed, as on x64, since `--no-ion` stops the
+inlining they check. The other 39 failures were timeouts at `jit_test.py`'s 150 s, of 32 tests;
+rerun with 1,200 s, all but one passed, the slowest in 384 s, so the script gives each test 600 s.
+The one, `baseline/bug1238815.js`, is slow because of the recorder, not QEMU: it passes under
+QEMU in 24 s without recording (see its item in [../TODO.md](../TODO.md)).
+
+## The ARM simulator, and why ARM's records come from QEMU
+
+`--enable-simulator=arm` builds a shell for 32-bit x86 whose JIT emits ARM code. The C++ runs
+natively; the JIT's code runs in `jit/arm/Simulator-arm.cpp`, an ARM interpreter. It needs no
+ARM runner, but its stubs aren't a real ARM shell's (below), so ARM's records come from the real
+shell under QEMU. A simulator shell with the recorder was built on 2026-11-09 for the comparison
+below, then deleted. Configure accepts the simulator only with a 32-bit x86 target: the C++ and
+the ARM code share data structures, so pointers must be 4 bytes on both sides. CI builds it the
+same way (`js/src/devtools/automation/variants/arm-sim`, "SM(arm)" on Treeherder).
+
+To build it again: `mozconfig-js-x64`'s options plus `--target=i686-pc-linux-gnu` and
+`--enable-simulator=arm`, with objdir `obj-js-armsim`, and Rust's `i686-unknown-linux-gnu`
+target (installed). Configure downloads Mozilla's `sysroot-i686-linux-gnu`. To run, it needs the
+32-bit runtime libraries (`libc6-i386 lib32stdc++6 lib32gcc-s1 lib32atomic1 lib32z1`, installed
+on 2026-11-09); without them, the shell fails with "cannot execute: required file not found",
+since `/lib/ld-linux.so.2` is missing.
+
+**CPU features.** The simulator takes them from `ARMHWCAP` or `--arm-hwcap`, or defaults to
+ARMv7, VFP, VFPv3, VFPv4, NEON and IDIV with the soft-float calling convention
+(`ReadARMHwCapFlags`). A real armhf shell always uses hard-float, which changes how stubs pass
+doubles to C++; the simulator needs `hardfp` for it. An explicit `ARMHWCAP` replaces the whole
+default set.
+
+### Where its stubs differ from a real ARM shell's
+
+1. **Struct layouts.** i686 aligns a 64-bit member (`uint64_t`, `double`, and `JS::Value`, which
+   has no `alignas`) to 4 bytes inside a struct, and ARM's EABI to 8, so a struct with one after
+   a 4-byte member is laid out differently, and stubs build field offsets into their code. On
+   2026-11-09, at `phoenix` `a80a8d195688`, each `X::offsetOf…()` and `offsetof(…)` named in the
+   stub compilers and ARM's MASM (`CacheIRCompiler`, `BaselineCacheIRCompiler`,
+   `MacroAssembler{.cpp,.h,-inl.h}`, `arm/MacroAssembler-arm*`, `SharedICHelpers*`) was evaluated
+   by clang with each shell's flags for `CacheIRCompiler.cpp`, with access checks off (most are
+   private): 204 of 220 are the same in both, and 16 differ:
+   - from the alignment: `ArgumentsData::offsetOfArgs` (8 here, 16 on ARM), four of `Realm`'s
+     (`offsetOfActiveGlobal`: 60 and 72), `JitZone`'s five stub pointers,
+     `StringToAtomCache::offsetOfLastLookups`, and three of `ResumeFromException`'s;
+   - from a simulator-only member, `JSContext::simulator_`, 8 bytes before
+     `offsetOfRegExpSearcherLastLimit` and `offsetOfWasm`.
+
+   Stubs read them in arguments objects' elements (`loadArgumentsObjectElement`,
+   `pushFunApplyArgsObj`), the global (`loadGlobalObjectData`), allocation
+   (`checkAllocatorState`, `storeLocalAllocSite`), string concatenation and RegExps (`JitZone`'s
+   stubs), and atomizing (`tryFastAtomize`); `ResumeFromException`'s are in the exception
+   handler's tail, and `offsetOfWasm` in wasm's code. All are below 4096, the range of LDR's and
+   STR's immediate offsets, so a real ARM shell should emit the same instructions with other
+   offsets. Not evaluated: the three `Table::…` offsets of Map's and Set's templates, and two of
+   `JSContext`'s that exist only under `FUZZING_JS_FUZZILLI`. The structs that computed offsets
+   come from (`NativeObject`, `ICStub`, `ICCacheIRStub`, `BaselineFrame`, `JitFrameLayout`,
+   `JSFunction`, `JSString`, `Shape`, `ObjectElements`, `ICScript`, `JitScript`, …) are laid out
+   the same, and stub data aligns 64-bit fields to `sizeof(uint64_t)` explicitly.
+2. **Calls to natives.** Under `JS_SIMULATOR`, `CallNativeFunction` and `CallDOMFunction` have a
+   `RawPointerField` for the redirected target (`CacheIROps.yaml`), `CallClassHook`'s and
+   `callAnyNativeFunction`'s targets are redirected, and `CallNativeFunction` compiles to other
+   code. All come from the Call ICs, whose generators the recorder doesn't hook yet, but whose
+   compilations it records, as it does every kind's (`Call.CallScripted` among the first records,
+   on 2026-11-09).
+3. **Calls into C++** (`callWithABI`) go through a redirection: the same instructions, with
+   another address, which differs between builds anyway.
+
+**Measured on records** (2026-11-09): three scripts (`~`, `arguments[0]` and
+`encodeURIComponent(s)`), recorded by both shells, the simulator's with
+`ARMHWCAP=armv7,vfp,vfpv3,vfpv4,neon,idiva,vfpd32,hardfp` and QEMU's with `cortex-a7`. Of the
+eight stubs compiled, every one has the same op offsets, return and failure offsets, and size in
+both, and four (`UnaryArith.BitwiseBitNot`, `Compare.Int32`, `UnaryArith.Int32ToNumeric`,
+`UnaryArith.Int32Inc`) the same bytes. In the others, the words that differ are `movw`/`movt`
+pairs that load an address (a C++ function, static data or the heap), and:
+- in `GetProp.ArgumentsObjectArg`, the two layout ones: `ldr r12, [r12, #12]` and
+  `ldrd r2, r3, [r12, #8]` in the simulator, `#20` and `#16` on ARM;
+- in `Call.CallNative`, whose CacheIR differs (item 2), one instruction: the native's address is
+  loaded from the stub's data, `ldr r12, [r9, #32]`, instead of from the function,
+  `ldr r12, [r1, #24]`.
 
 ## Rust
 

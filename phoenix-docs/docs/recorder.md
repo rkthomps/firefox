@@ -38,15 +38,21 @@ set.
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type. This is version 2 (version 1
-had no compile records, and no `jitOptions` or `replay` in process records).
+Every line has `v`, the format's version, and `record`, its type. This is version 3 (version 2
+had no `build` in process records; version 1 had no compile records, and no `jitOptions` or
+`replay`).
 
 ### Process records
 
-The first line of each process's records, written when the recorder starts:
+The first line of each process's records, written when the recorder starts, at the first IC.
+Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
 ```json
-{"v":2,"record":"process","pid":3413522,"argv":["…/obj-js-x64/dist/bin/js","--no-ion",…,"-f","…/jit-test/tests/basic/bug1666856.js"],
+{"v":3,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
+ "build":{"backend":"arm","debug":true,"simulator":false,
+          "armFlags":{"HasARMv7":true,"HasMOVWT":true,"HasLDSTREXBHD":true,"HasDMBDSBISB":true,"HasVFP":true,
+                      "Has32DP":true,"HasVFPv3":true,"HasVFPv4":true,"HasNEON":true,"HasIDIV":true,
+                      "HasFPHalfPrecision":true,"HasAlignmentFault":false,"UseHardFpABI":true}},
  "jitOptions":{"icFramePointers":false,"spectreIndexMasking":false,"spectreObjectMitigations":false,
                "spectreStringMitigations":false,"spectreValueMasking":false,"spectreJitToCxxCalls":false},
  "replay":null}
@@ -55,6 +61,19 @@ The first line of each process's records, written when the recorder starts:
 - `argv`: the shell's command line, from `/proc/self/cmdline`. It names the test, which a
   record's `loc` doesn't when the IC is in a library (`jit-test/lib/*.js`) or in code made by
   `Function` or `eval`. For jit-tests, the test is the value of the last `-f` or `--module`.
+- `build`: the build that wrote the records, which every other record of the process shares.
+  - `backend`: the JIT's backend, from `JS_CODEGEN_*`: `x64` or `arm` so far.
+  - `debug`: whether it's a debug build, whose stubs have debug-only checks.
+  - `simulator`: whether the JIT's code runs in one of SpiderMonkey's simulators
+    (`JS_SIMULATOR`), whose stubs aren't the real backend's (see [backends.md](backends.md)).
+  - `armFlags`, on ARM only: each of `ARMFlags`' queries, by its name, as the JIT answered them.
+    The JIT reads the CPU's features at startup, and its code depends on some of them. They're
+    what it uses, not just what the CPU reported: it adds `HasFPHalfPrecision` with VFPv4. A
+    few jit-tests choose their own (`--arm-hwcap=vfp`, which is ARMv6 without ARMv7, in
+    `basic/bug1870747.js`, `basic/bug1875363.js`, `ion/bug1870756.js`,
+    `auto-regress/bug1879939.js` and `wasm/unsupported/requires-armv7.js`;
+    `--arm-hwcap=armv7,vfp` in `wasm/arm-hwcap-madness.js`): 6 of 14,146 processes on
+    2026-11-09, so filter on `armFlags` before comparing with a model of one CPU.
 - `jitOptions`: the `JitOptions` that change the code the compiler emits for some stubs.
 - `replay`: the replay table's path (`PHOENIX_REPLAY`), or `null`.
 
@@ -83,7 +102,8 @@ One per generator run, e.g. for `~0`:
 - `args`: the arguments `TryAttachStub` constructed the generator with after the IC state, in
   order: the generator's inputs. For `UnaryArithIRGenerator` they're `op`, `val` and `res`, the
   order of the Lean structure's fields. Each is one of:
-  - `{"type":"Value","bits":…,"tag":…}`: `bits` is `Value::asRawBits()` as hex (x64 boxing), and
+  - `{"type":"Value","bits":…,"tag":…}`: `bits` is `Value::asRawBits()` as hex, in the build's
+    boxing (x64's PUNBOX64, or 32-bit ARM's NUNBOX32, whose upper word is the tag), and
     `tag` its type, for filtering. For a GC thing, `bits` holds a pointer, meaningless without
     the heap.
   - `{"type":"JSOp","name":…,"byte":…}` and `{"type":"CacheKind","name":…}`.

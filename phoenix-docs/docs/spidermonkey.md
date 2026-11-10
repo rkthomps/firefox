@@ -44,7 +44,7 @@ checkout, `../firefox-phoenix` (see [branches.md](branches.md)), whose sources a
 | `firefox-phoenix` | `obj-js-x64` | `mozconfig-js-x64`, without `--enable-phoenix` | a plain x64 shell of the reference: reproducing a JIT bug without Phoenix, and the compile database of the x64 USR index ([usr-index.md](usr-index.md)) |
 | `firefox-phoenix` | `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter): reproducing the bugs in [bug-fixes/](../bug-fixes/) |
 | `firefox-phoenix` | `obj-js-arm` | `mozconfig-js-arm` | a real 32-bit ARM shell, cross-compiled ([backends.md](backends.md)). Configured, not built: the compile database of the ARM USR index |
-| | `obj-js-armsim` | `mozconfig-js-armsim` | not built yet: ARM stub bytes on this machine, through SpiderMonkey's ARM simulator |
+| `firefox-phoenix-dev` | `obj-js-arm` | `mozconfig-js-arm` | a real 32-bit ARM shell with the recorder, cross-compiled and run under QEMU's user mode: ARM's records ([backends.md](backends.md)) |
 
 ```
 # mozconfig-js-x64 (firefox-phoenix's is the same without --enable-phoenix, which phoenix lacks)
@@ -64,10 +64,11 @@ mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-pbl
 ```
 
 ```
-# mozconfig-js-arm (../firefox-phoenix): a real 32-bit ARM shell from phoenix's sources, without
-# Phoenix, cross-compiled (phoenix-docs/docs/backends.md)
+# mozconfig-js-arm: a real 32-bit ARM shell, cross-compiled (phoenix-docs/docs/backends.md).
+# firefox-phoenix's is the same without --enable-phoenix
 ac_add_options --enable-project=js
 ac_add_options --enable-debug
+ac_add_options --enable-phoenix
 ac_add_options --target=arm-linux-gnueabihf
 ac_add_options --with-arch=armv7-a
 ac_add_options --with-thumb=yes
@@ -75,15 +76,6 @@ ac_add_options --with-fpu=vfpv3-d16
 ac_add_options --with-float-abi=hard
 ac_add_options --with-sysroot=$HOME/.mozbuild/sysroot-armhf-linux-gnu
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-arm
-```
-
-```
-# mozconfig-js-armsim (planned; needs a 32-bit x86 host build)
-ac_add_options --enable-project=js
-ac_add_options --enable-debug
-ac_add_options --target=i686-pc-linux-gnu
-ac_add_options --enable-simulator=arm
-mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-armsim
 ```
 
 - A PBL shell runs PBL only with `--portable-baseline`, and AOT ICs only with `--aot-ics`.

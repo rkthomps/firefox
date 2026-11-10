@@ -44,6 +44,11 @@ reference's C++, and how to make a sysroot for another architecture.
   `phoenix-tools/sysroot.py` makes, with `gpgv` and Debian's keys (`sudo apt install
   debian-archive-keyring`) to check what it downloads; and Rust's standard library for the target
   (`rustup target add armv7-unknown-linux-gnueabihf` for 32-bit ARM).
+- **To run the 32-bit ARM shell on this machine**: QEMU's user mode, which runs a program of
+  another architecture by translating its instructions (`sudo apt install qemu-user
+  qemu-user-binfmt`). `qemu-user-binfmt` registers QEMU with the kernel, so an ARM program starts
+  like any other, as jit-tests start the shell. The program's libraries come from its sysroot
+  ([docs/backends.md](docs/backends.md)).
 
 ## Building the recorder
 
@@ -58,10 +63,15 @@ MOZCONFIG=$PWD/mozconfig-js-x64 ./mach build
 
 The shell is `obj-js-x64/dist/bin/js`. `record-jit-tests.sh` (below) builds it for you.
 
+The 32-bit ARM shell is built the same way from `mozconfig-js-arm`, into `obj-js-arm`, in about
+70 s, cross-compiled against its sysroot ([docs/backends.md](docs/backends.md)), and runs under
+QEMU (below).
+
 ## Recording jit-tests
 
 ```
-phoenix-tools/record-jit-tests.sh [--no-build] [--replay TABLE] LABEL [KINDS] [-- JIT_TEST_ARGS...]
+phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE] LABEL [KINDS]
+                                  [-- JIT_TEST_ARGS...]
 ```
 
 - `LABEL` names the run, which goes in `../phoenix-runs/<date>-LABEL`. Set `PHOENIX_RUNS` to put
@@ -69,7 +79,12 @@ phoenix-tools/record-jit-tests.sh [--no-build] [--replay TABLE] LABEL [KINDS] [-
 - `KINDS` is a comma-separated list of `CacheKind`s to record, e.g. `UnaryArith`. Without it,
   every kind is recorded, even if `PHOENIX_RECORD_KINDS` is set in your shell.
 - Arguments after `--` go to `jit_test.py`, e.g. test paths to run only those tests.
-- `--no-build` skips building `obj-js-x64`. Building is the default: when nothing has changed it
+- `--build arm` records the 32-bit ARM shell, `obj-js-arm`, under QEMU, with the sysroot's
+  libraries and `QEMU_CPU` (default `cortex-a7`; see [docs/backends.md](docs/backends.md)). It
+  stops at once if QEMU isn't registered with the kernel, and gives each test 600 s instead of
+  `jit_test.py`'s 150 (`--timeout` after `--` overrides it). All of jit-tests takes about 20
+  minutes. The default is `x64`, `obj-js-x64`.
+- `--no-build` skips building the shell. Building is the default: when nothing has changed it
   takes about a second, and it guards against recording with a stale shell.
 - `--replay TABLE` runs the tests with the stub code in `TABLE` (see "Running on replacement stub
   code" below).
@@ -84,7 +99,7 @@ phoenix-tools/record-jit-tests.sh quick UnaryArith -- basic/testBitwise.js   # o
 
 The script:
 
-1. builds `obj-js-x64`, and checks that it was built with `--enable-phoenix`;
+1. builds the shell, and checks that it was built with `--enable-phoenix`;
 2. tries `KINDS` on a one-line script, so a misspelt kind stops it at once instead of crashing
    every test;
 3. runs jit-tests with `--no-ion --baseline-eager`. All of jit-tests takes a few minutes on this
@@ -126,6 +141,16 @@ PHOENIX_RECORD=/tmp/rec PHOENIX_RECORD_KINDS=UnaryArith \
 - `--no-ion` keeps hot code on the baseline stubs.
 - A directory that doesn't exist, or a kind that doesn't, crashes the shell at the first IC, so
   a mistake can't pass for an empty run.
+
+The 32-bit ARM shell runs the same way under QEMU, which `qemu-user-binfmt` starts for it. QEMU
+needs the sysroot, for the shell's loader and libraries, and the core to emulate, whose features
+the JIT reads ([docs/backends.md](docs/backends.md)):
+
+```
+QEMU_LD_PREFIX=~/.mozbuild/sysroot-armhf-linux-gnu QEMU_CPU=cortex-a7 \
+PHOENIX_RECORD=/tmp/rec PHOENIX_RECORD_KINDS=UnaryArith \
+  obj-js-arm/dist/bin/js --no-ion --baseline-eager phoenix-tools/tests/bitnot.js
+```
 
 ## Looking at the records
 
