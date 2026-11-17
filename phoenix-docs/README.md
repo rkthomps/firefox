@@ -67,10 +67,14 @@ The 32-bit ARM shell is built the same way from `mozconfig-js-arm`, into `obj-js
 70 s, cross-compiled against its sysroot ([docs/backends.md](docs/backends.md)), and runs under
 QEMU (below).
 
+Each has a release build too, the build `cachet-lean` verifies: `mozconfig-js-x64-release` into
+`obj-js-x64-release`, and `mozconfig-js-arm-release` into `obj-js-arm-release`
+([docs/spidermonkey.md](docs/spidermonkey.md) says how they differ).
+
 ## Recording jit-tests
 
 ```
-phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE]
+phoenix-tools/record-jit-tests.sh [--build x64|arm] [--release] [--no-build] [--replay TABLE]
                                   [--record-types TYPES] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 ```
 
@@ -88,6 +92,8 @@ phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE
   stops at once if QEMU isn't registered with the kernel, and gives each test 600 s instead of
   `jit_test.py`'s 150 (`--timeout` after `--` overrides it). All of jit-tests takes about 20
   minutes. The default is `x64`, `obj-js-x64`.
+- `--release` records the backend's release build, `obj-js-x64-release` or `obj-js-arm-release`,
+  instead of its debug one.
 - `--no-build` skips building the shell. Building is the default: when nothing has changed it
   takes about a second, and it guards against recording with a stale shell.
 - `--replay TABLE` runs the tests with the stub code in `TABLE` (see "Running on replacement stub

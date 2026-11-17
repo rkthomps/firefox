@@ -14,10 +14,10 @@ runs Android's tests on phones. A backend needs:
 The USR index ([usr-index.md](usr-index.md)) needs only the first three: configure, the generated
 headers and the compile database. Nothing runs.
 
-| Backend | Sysroot | Rust target | Where it stands (2026-11-09) |
+| Backend | Sysroot | Rust target | Where it stands (2026-11-17) |
 |---|---|---|---|
-| x64 | Mozilla's `sysroot-x86_64-linux-gnu`, from `./mach bootstrap` | `x86_64-unknown-linux-gnu` | the recorder, and the index |
-| 32-bit ARM | `sysroot.py --arch armhf` (below) | `armv7-unknown-linux-gnueabihf`, installed | the recorder (`obj-js-arm` here, run under QEMU), and the index (`obj-js-arm` in `../firefox-phoenix`, configured only) |
+| x64 | Mozilla's `sysroot-x86_64-linux-gnu`, from `./mach bootstrap` | `x86_64-unknown-linux-gnu` | the recorder, debug (`obj-js-x64`) and release (`obj-js-x64-release`), and the index |
+| 32-bit ARM | `sysroot.py --arch armhf` (below) | `armv7-unknown-linux-gnueabihf`, installed | the recorder, debug (`obj-js-arm`) and release (`obj-js-arm-release`), run under QEMU, and the index (`obj-js-arm` in `../firefox-phoenix`, configured only) |
 
 Mozilla publishes sysroots for x86 (`sysroot-i686-linux-gnu`) and arm64 (`sysroot-aarch64-linux-gnu`)
 too, which `./mach bootstrap` fetches (`taskcluster/kinds/toolchain/sysroot.yml`). For the other

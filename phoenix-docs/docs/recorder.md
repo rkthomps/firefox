@@ -104,7 +104,8 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
     set, as in the value the JIT embeds.
 
   125 entries on x64 and 127 on ARM (`__aeabi_idivmod` and `__aeabi_uidivmod` are ARM's only)
-  on 2026-11-16, in every process of both full runs. On x64, ASLR loads the shell at another
+  on 2026-11-16, in every process of both full runs. Release builds have 5 fewer, 120 and 122:
+  the `js::wasm::Print*` functions are only in debug builds (`WASM_CODEGEN_DEBUG`). On x64, ASLR loads the shell at another
   address in every process (14,147 addresses of `JS::ToInt32` in 14,147 processes); under QEMU's
   user mode, the ARM shell is at the same address in every process (one address in 14,146).
 
@@ -270,8 +271,11 @@ the same line when they're equal but for:
   `Int32ToNumeric`, 10,092 compilations on x64 on 2026-11-10);
 - the code's bytes, as long as their length is the same. Code embeds addresses of its process
   (64-bit immediates on x64, where ASLR moves the shell and the heap; `movw`/`movt` pairs on ARM),
-  and on ARM a debug build's `BKPT` immediates count the breakpoints the process emitted before
-  (`Assembler::as_bkpt`), so the same stub's bytes differ from process to process.
+  and on ARM `BKPT` immediates count the breakpoints the process emitted before
+  (`Assembler::as_bkpt`), so the same stub's bytes differ from process to process. Release builds
+  have them too: `assumeUnreachable` is a bare `breakpoint()` there, and
+  `CacheRegisterAllocator::ensureDoubleRegister` always emits one after a jump over it (the double
+  `~` stub's only `BKPT` in a release build, at offset 56 on 2026-11-17).
 
 and the line keeps its process's configuration, since the same CacheIR can compile to other code
 under another one. Each line is a record without `pid` and `stubName`, `typeData` left out of

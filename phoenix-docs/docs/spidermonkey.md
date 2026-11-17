@@ -48,6 +48,26 @@ checkout, `../firefox-phoenix` (see [branches.md](branches.md)), whose sources a
 | `firefox-phoenix` | `obj-js-pbl` | `mozconfig-js-pbl` | upstream's AOT IC build (the portable baseline interpreter): reproducing the bugs in [bug-fixes/](../bug-fixes/) |
 | `firefox-phoenix` | `obj-js-arm` | `mozconfig-js-arm` | a real 32-bit ARM shell, cross-compiled ([backends.md](backends.md)). Configured, not built: the compile database of the ARM USR index |
 | `firefox-phoenix-dev` | `obj-js-arm` | `mozconfig-js-arm` | a real 32-bit ARM shell with the recorder, cross-compiled and run under QEMU's user mode: ARM's records ([backends.md](backends.md)) |
+| `firefox-phoenix-dev` | `obj-js-x64-release` | `mozconfig-js-x64-release` | the x64 shell with the recorder, in a release build: the records of the build `cachet-lean` verifies (below) |
+| `firefox-phoenix-dev` | `obj-js-arm-release` | `mozconfig-js-arm-release` | the 32-bit ARM shell with the recorder, in a release build, run under QEMU |
+
+**Debug and release builds.** `cachet-lean` verifies a release build (`DEBUG` undefined): that's
+what ships, and a debug build differs before the stub code does. Its generators write extra
+CacheIR ops (`assertPropertyLookup` in some `GetProp` paths, `guardHasAttachedArrayBuffer` in some
+typed-array ones), and its compiler emits checks (`Int32NotResult`'s `int3`, `callWithABI`'s
+stack-alignment check and its `AssumeUnreachable` call). The debug builds stay, for replay under
+C++'s assertions and as an oracle. The release builds:
+- are `--disable-debug --enable-optimize`, so without `JS_JITSPEW` and `JS_CACHEIR_SPEW` too;
+- have the Release channel's defaults, from `--as-milestone=release`. This tree is a Nightly's
+  (`config/milestone.txt` is `158.0a1`), which defines `NIGHTLY_BUILD`, turns on
+  `MOZ_DIAGNOSTIC_ASSERT` and turns on some features by default. In the JIT, `NIGHTLY_BUILD`
+  adds one inlinable native (`IntrinsicGuardToIteratorRange`) and a regexp option; no diagnostic
+  assert is in the stub path (`CacheIR.cpp`, `CacheIRCompiler.cpp`, `BaselineCacheIRCompiler.cpp`,
+  `BaselineIC.cpp`, `MacroAssembler.cpp`, the x86, x64 and ARM assemblers), as of 2026-11-17;
+- differ from Mozilla's shipping builds in what doesn't change the JIT's code: they're shells,
+  not the browser, without PGO or LTO, and ARM's is Linux's (armhf), where 32-bit ARM ships for
+  Android. The JIT reads the CPU's features at run time, and the records give them (`armFlags`,
+  `x86CPUInfo`).
 
 ```
 # mozconfig-js-x64 (firefox-phoenix's is the same without --enable-phoenix, which phoenix lacks)
@@ -79,6 +99,34 @@ ac_add_options --with-fpu=vfpv3-d16
 ac_add_options --with-float-abi=hard
 ac_add_options --with-sysroot=$HOME/.mozbuild/sysroot-armhf-linux-gnu
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-arm
+```
+
+The release mozconfigs are the debug ones with `--enable-debug` replaced, and their own objdir:
+
+```
+# mozconfig-js-x64-release
+ac_add_options --enable-project=js
+ac_add_options --disable-debug
+ac_add_options --enable-optimize
+ac_add_options --as-milestone=release
+ac_add_options --enable-phoenix
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-x64-release
+```
+
+```
+# mozconfig-js-arm-release
+ac_add_options --enable-project=js
+ac_add_options --disable-debug
+ac_add_options --enable-optimize
+ac_add_options --as-milestone=release
+ac_add_options --enable-phoenix
+ac_add_options --target=arm-linux-gnueabihf
+ac_add_options --with-arch=armv7-a
+ac_add_options --with-thumb=yes
+ac_add_options --with-fpu=vfpv3-d16
+ac_add_options --with-float-abi=hard
+ac_add_options --with-sysroot=$HOME/.mozbuild/sysroot-armhf-linux-gnu
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-js-arm-release
 ```
 
 - A PBL shell runs PBL only with `--portable-baseline`, and AOT ICs only with `--aot-ics`.
