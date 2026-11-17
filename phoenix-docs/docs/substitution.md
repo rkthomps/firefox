@@ -49,7 +49,7 @@ UnaryArith 0b00006c0100 834708014989cb49c1eb2f4181fbf1ff0100…c3488b7f10ff270f0
 ## What the Lean driver has to produce
 
 The driver isn't built yet; this is what it has to do. Its input is a recorded run
-(`phoenix-tools/record-jit-tests.sh`): generator records, deduplicated in `unique.jsonl`, and
+(`phoenix-tools/record-jit-tests.sh`): generator records, deduplicated in `unique/`, and
 compile records. The record format is in [recorder.md](recorder.md).
 
 **For goal 1b** (Lean's generator and compiler):

@@ -48,10 +48,21 @@ function's arguments. It changes names, so the format's doc and `cachet-lean`'s
 ## Distinct counts in the corpus summary
 
 `corpus.py dedupe`'s summary gives, per kind, stub name and input types, only how many records
-there were. Add how many of them are distinct (the entries of `unique.jsonl`), and perhaps how
-many tests and source locations they came from. A row's record count follows how many IC sites
-the tests have, so on its own it overstates how much there is to check: `UnaryArith.BitwiseBitNot
-int32,int32` is 253 records but only 35 distinct ones.
+there were. Add how many of them are distinct (the lines of `unique/`, which `unique/index.jsonl`
+counts by kind, op, outcome and input types), and perhaps how many tests and source locations
+they came from. A row's record count follows how many IC sites the tests have, so on its own it
+overstates how much there is to check: `UnaryArith.BitwiseBitNot int32,int32` is 253 records but
+only 35 distinct ones.
+
+## A run's process records in their own directory
+
+A run's `records/` holds about 14,000 `<pid>.jsonl` files, one per shell process, next to the
+derived `unique/` and `unique-compile/`, which a listing then buries. `record-jit-tests.sh` could
+set `PHOENIX_RECORD` to a subdirectory, e.g. `records/processes/`, so that `records/` holds only
+it and the two trees. `corpus.py` (`dedupe` and `replay`), `replay-table.py` and the docs
+(`README.md`, `docs/recorder.md`, `docs/substitution.md`) would follow, and existing runs' files
+would move. The trees can stay where they are, so `cachet-lean`'s readers needn't change. Not
+urgent: nothing breaks as it is.
 
 ## Substitution: follow-ups
 

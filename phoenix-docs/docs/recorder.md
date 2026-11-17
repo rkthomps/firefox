@@ -201,16 +201,44 @@ The code is from a debug build, so it has debug-only checks (e.g. an `int3` afte
 
 ### Deduplicated records
 
-`phoenix-tools/corpus.py dedupe` derives two files from the records (`<pid>.jsonl`, which it
-doesn't change), and writes them next to them. `record-jit-tests.sh` runs it at the end of a run.
+`phoenix-tools/corpus.py dedupe` derives two directories from the records (`<pid>.jsonl`, which
+it doesn't change), and writes them next to them. `record-jit-tests.sh` runs it at the end of a
+run. Until 2026-11-10, they were two files, `unique.jsonl` and `unique-compile.jsonl`, and the
+generator records' lines had no `op`.
 
-**`unique.jsonl`**: one line per distinct generator record, i.e. records equal apart from `pid`
-and `loc`. Each is the record without those two fields, plus `count` (how many records it stands
-for), `locs` (their `file:line:column` locations) and `tests` (the tests they came from, from the
-process records).
+**`unique/`**: one line per distinct generator record, i.e. records equal apart from `pid` and
+`loc`'s position (`file`, `line`, `column`, `pcOffset`). Each is the record without those two
+fields, plus:
+- `op`: its records' `loc.op`, the IC's op. Only seven kinds have it among their arguments
+  (`BinaryArith`, `Compare`, `Lambda`, `NewArray`, `NewObject`, `TypeOfEq`, `UnaryArith`);
+- `count`: how many records it stands for;
+- `locs`: their `file:line:column` locations;
+- `tests`: the tests they came from, from the process records.
 
-**`unique-compile.jsonl`**: one line per distinct compile record, for looking a stub's code up
-without scanning every record (added on 2026-11-10, for `cachet-lean`'s `stub-code`). Records are
+The lines are split by kind, op, outcome and input types, a file each, so that a tool reads only
+the slice it asks for (all of a run's lines are 3.5 GB on x64):
+
+```
+unique/<kind>/<op>/<outcome>/<tags>.jsonl
+unique/UnaryArith/BitNot/UnaryArith.BitwiseBitNot/int32,int32.jsonl
+unique/UnaryArith/BitNot/NoAction/object,int32.jsonl
+unique/GetName/GetGName/GetName.GlobalNameValue/none.jsonl
+```
+
+- `<outcome>` is the `stubName` of an `Attach` that has one, and the `decision` otherwise. A line
+  keeps its `stubName`, which a `NoAction` can have too (`NotAttached`).
+- `<tags>` are the `Value` arguments' tags, in order, joined with `,`, as `summary.txt` prints
+  them, or `none` if no argument is a `Value`.
+- A `/` in a part would be written `%2F`, and a `%` `%25`. Neither occurs now.
+
+Each line is in one file, so a coarser slice is a directory: all of `UnaryArith` is
+`unique/UnaryArith/`. A file's lines are sorted by `count`, most first. `unique/index.jsonl` has a
+line per file, sorted by `path`: `kind`, `op`, `outcome`, `tags` (a list, `[]` for none), `path`
+(from the records' directory), `lines`, `count` (the records its lines stand for) and `bytes`.
+
+**`unique-compile/<kind>.jsonl`**: one line per distinct compile record, a file per kind, for
+looking a stub's code up without scanning every record (added on 2026-11-10, for `cachet-lean`'s
+`stub-code`). A compile record has no `loc` and no inputs, so it's split by kind only. Records are
 the same line when they're equal but for:
 - `pid`;
 - what belongs to the stub whose attaching triggered the compilation, not to the code: `stubName`
