@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Record IC generator runs over jit-tests with Phoenix's recorder (phoenix-docs/README.md).
 #
-#   phoenix-tools/record-jit-tests.sh [--build x64|arm] [--no-build] [--replay TABLE]
+#   phoenix-tools/record-jit-tests.sh [--build x64|arm] [--release] [--no-build] [--replay TABLE]
 #                                     [--record-types TYPES] LABEL [KINDS] [-- JIT_TEST_ARGS...]
 #
 # - LABEL names the run, which goes in $PHOENIX_RUNS/<date>-LABEL. PHOENIX_RUNS defaults to
@@ -13,6 +13,8 @@
 # - Arguments after -- go to jit_test.py, e.g. test paths to run only those.
 # - --build arm records the 32-bit ARM shell, obj-js-arm, under QEMU's user mode, with the
 #   sysroot's libraries and QEMU_CPU (default cortex-a7). The default is x64, obj-js-x64.
+# - --release records the release build instead of the debug one: obj-js-x64-release or
+#   obj-js-arm-release, built with mozconfig-js-<backend>-release.
 # - --replay TABLE replaces the code of the stubs in TABLE (PHOENIX_REPLAY, see
 #   phoenix-docs/docs/substitution.md). The table is copied into the run.
 #
@@ -22,7 +24,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,20s/^# \{0,1\}//p' "$0" >&2
+  sed -n '2,22s/^# \{0,1\}//p' "$0" >&2
   exit 2
 }
 
@@ -31,6 +33,7 @@ RUNS=${PHOENIX_RUNS:-$(dirname "$ROOT")/phoenix-runs}
 command_line=$(printf '%q ' "$0" "$@")
 
 backend=x64
+variant=
 build=1
 replay=
 types=
@@ -45,6 +48,10 @@ while [[ ${1:-} == --* && $1 != -- ]]; do
       [[ $# -ge 2 && ($2 == x64 || $2 == arm) ]] || usage
       backend=$2
       shift 2
+      ;;
+    --release)
+      variant=-release
+      shift
       ;;
     --no-build)
       build=0
@@ -71,7 +78,8 @@ if [[ $# -ge 1 ]]; then
   shift
 fi
 
-OBJDIR=$ROOT/obj-js-$backend
+OBJDIR=$ROOT/obj-js-$backend$variant
+MOZCONFIG_FILE=$ROOT/mozconfig-js-$backend$variant
 JS=$OBJDIR/dist/bin/js
 # What the shell runs under: nothing for x64, QEMU for ARM (phoenix-docs/docs/backends.md).
 runner_env=()
@@ -101,7 +109,7 @@ build_log=$ROOT/artifacts/record-jit-tests-build.log
 if ((build)); then
   echo "Building $OBJDIR (log: $build_log)"
   mkdir -p "$ROOT/artifacts"
-  if ! (cd "$ROOT" && MOZCONFIG=$ROOT/mozconfig-js-$backend ./mach build) >"$build_log" 2>&1; then
+  if ! (cd "$ROOT" && MOZCONFIG=$MOZCONFIG_FILE ./mach build) >"$build_log" 2>&1; then
     echo "The build failed: see $build_log" >&2
     exit 1
   fi
