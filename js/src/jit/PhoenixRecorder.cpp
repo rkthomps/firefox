@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "jit/ABIFunctionList-inl.h"
 #include "jit/JitCode.h"
 #include "jit/JitOptions.h"
 #include "js/ColumnNumber.h"
@@ -29,7 +30,7 @@ using namespace js::jit;
 using namespace js::jit::phoenix;
 
 // The version of the record format, in every record's "v".
-static constexpr int RecordVersion = 5;
+static constexpr int RecordVersion = 6;
 
 // Records give these enums by number, so a renumbering must not go unnoticed.
 static_assert(uint8_t(StubField::Type::Limit) == 17);
@@ -115,6 +116,39 @@ static void WriteJSONString(GenericPrinter& out, const char* s) {
   out.putChar('"');
 }
 
+static void WriteABIFunction(GenericPrinter& out, bool* first, const char* name,
+                             const char* sig, void* address) {
+  out.put(*first ? "{\"name\":" : ",{\"name\":");
+  *first = false;
+  WriteJSONString(out, name);
+  out.put(",\"sig\":");
+  if (sig) {
+    WriteJSONString(out, sig);
+  } else {
+    out.put("null");
+  }
+  out.printf(",\"address\":\"0x%" PRIxPTR "\"}", uintptr_t(address));
+}
+
+// The address of every function callWithABI<Sig, fn> can call
+// (ABIFunctionList-inl.h), as ABIFunction<Sig, fn>::address() gives it, which
+// is what stub code embeds. "sig" is null for ABIFUNCTION_LIST's entries, which
+// aren't overloaded.
+static void WriteABIFunctions(GenericPrinter& out) {
+  bool first = true;
+  out.put("\"abiFunctions\":[");
+#define WRITE_ABI_FUNCTION(fp) \
+  WriteABIFunction(out, &first, #fp, nullptr, JS_FUNC_TO_DATA_PTR(void*, fp));
+  ABIFUNCTION_LIST(WRITE_ABI_FUNCTION)
+#undef WRITE_ABI_FUNCTION
+#define WRITE_ABI_FUNCTION_AND_TYPE(fp, ...)        \
+  WriteABIFunction(out, &first, #fp, #__VA_ARGS__, \
+                   JS_FUNC_TO_DATA_PTR(void*, static_cast<__VA_ARGS__>(fp)));
+  ABIFUNCTION_AND_TYPE_LIST(WRITE_ABI_FUNCTION_AND_TYPE)
+#undef WRITE_ABI_FUNCTION_AND_TYPE
+  out.put("]");
+}
+
 // The first line of each record file: the process's command line, which tells
 // which test the records came from, the build, the JIT options that change the
 // code of stubs, and the replay table.
@@ -151,13 +185,15 @@ static void WriteProcessRecord(FILE* file) {
   out.printf(
       ",\"jitOptions\":{\"icFramePointers\":%s,\"spectreIndexMasking\":%s,"
       "\"spectreObjectMitigations\":%s,\"spectreStringMitigations\":%s,"
-      "\"spectreValueMasking\":%s,\"spectreJitToCxxCalls\":%s},\"replay\":",
+      "\"spectreValueMasking\":%s,\"spectreJitToCxxCalls\":%s},",
       JitOptions.enableICFramePointers ? "true" : "false",
       JitOptions.spectreIndexMasking ? "true" : "false",
       JitOptions.spectreObjectMitigations ? "true" : "false",
       JitOptions.spectreStringMitigations ? "true" : "false",
       JitOptions.spectreValueMasking ? "true" : "false",
       JitOptions.spectreJitToCxxCalls ? "true" : "false");
+  WriteABIFunctions(out);
+  out.put(",\"replay\":");
   const char* replay = getenv("PHOENIX_REPLAY");
   if (replay && *replay) {
     WriteJSONString(out, replay);
