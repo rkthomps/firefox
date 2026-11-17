@@ -34,8 +34,9 @@ records it writes (see the README's "Recording one script").
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type. This is version 5. Earlier
+Every line has `v`, the format's version, and `record`, its type. This is version 6. Earlier
 versions:
+- 5 had no `abiFunctions` in process records;
 - 4 had no `x86CPUInfo` in x86's and x64's process records;
 - 3 wrote CacheIR as text, `SpewCacheIROpsAsAOT`'s (the ahead-of-time IC corpus's serializer),
   in `cacheir.aot`, in place of `cacheir.writer`. Recording the writer's state took the
@@ -50,13 +51,15 @@ The first line of each process's records, written when the recorder starts, at t
 Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
 ```json
-{"v":5,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
+{"v":6,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
  "build":{"backend":"arm","debug":true,"simulator":false,
           "armFlags":{"HasARMv7":true,"HasMOVWT":true,"HasLDSTREXBHD":true,"HasDMBDSBISB":true,"HasVFP":true,
                       "Has32DP":true,"HasVFPv3":true,"HasVFPv4":true,"HasNEON":true,"HasIDIV":true,
                       "HasFPHalfPrecision":true,"HasAlignmentFault":false,"UseHardFpABI":true}},
  "jitOptions":{"icFramePointers":false,"spectreIndexMasking":false,"spectreObjectMitigations":false,
                "spectreStringMitigations":false,"spectreValueMasking":false,"spectreJitToCxxCalls":false},
+ "abiFunctions":[{"name":"__aeabi_idivmod","sig":null,"address":"0x33d086c"},…,
+                 {"name":"JS::ToInt32","sig":"int32_t (*)(double)","address":"0x2409ce9"},…],
  "replay":null}
 ```
 
@@ -89,6 +92,26 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
     So filter on `armFlags` or `x86CPUInfo` before comparing with a model of one CPU.
 - `jitOptions`: the `JitOptions` that change the code the compiler emits for some stubs.
+- `abiFunctions`: the address of every C++ function that `callWithABI<Sig, fn>` can call, i.e.
+  every entry of `ABIFUNCTION_LIST` and `ABIFUNCTION_AND_TYPE_LIST` (`jit/ABIFunctionList-inl.h`),
+  in their order. A stub's code embeds the address of each function it calls, as
+  `ABIFunction<Sig, fn>::address()` gives it, so comparing a stub's code needs the addresses of
+  the process that compiled it. Each entry has:
+  - `name`: the function's name as the list spells it;
+  - `sig`: the signature, for `ABIFUNCTION_AND_TYPE_LIST`'s entries, which are overloaded (e.g.
+    `js::jit::RoundFloat16ToFloat32` three times); `null` for `ABIFUNCTION_LIST`'s, which aren't;
+  - `address`: the address, in hex. On 32-bit ARM the shell is Thumb-2 code, so the low bit is
+    set, as in the value the JIT embeds.
+
+  125 entries on x64 and 127 on ARM (`__aeabi_idivmod` and `__aeabi_uidivmod` are ARM's only)
+  on 2026-11-16, in every process of both full runs. On x64, ASLR loads the shell at another
+  address in every process (14,147 addresses of `JS::ToInt32` in 14,147 processes); under QEMU's
+  user mode, the ARM shell is at the same address in every process (one address in 14,146).
+
+  Calls through computed pointers (`ABIFUNCTIONSIG_LIST`, `DynamicFunction`) have no fixed
+  address and aren't in the table. Nor are other addresses code embeds, such as that of the
+  message a debug build's `assumeUnreachable` passes to `js::jit::AssumeUnreachable` (a `movabs`
+  on x64, in the double path of `TruncateDoubleToUInt32`, for one).
 - `replay`: the replay table's path (`PHOENIX_REPLAY`), or `null`.
 
 ### Generator records
@@ -191,7 +214,8 @@ CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~
     256 ops, and only the first 256 are listed;
   - `relocationBytes`: the size of the code's relocation tables. Code with relocations embeds
     addresses the linker patches in. The converse doesn't hold: calls into C++ embed absolute
-    addresses without relocations;
+    addresses without relocations (`call(ImmPtr)`'s jumps are `HARDCODED`, which aren't
+    written to the tables), at addresses the process record's `abiFunctions` gives;
   - `localTracingSlots`, `makesGCCalls`: what the compiler says about the code, which
     substitution keeps.
 - `replay`: `null` without a replay table; otherwise `substituted`, `notInTable` or `refused`.
@@ -257,6 +281,10 @@ under another one. Each line is a record without `pid` and `stubName`, `typeData
   spans of bytes where some record of the line differs from them, `[]` if none does. It's what
   was seen to vary in this run, not all that can: a stub compiled once has `[]` even if it embeds
   an address;
+- `code.abiFunctions`: the `abiFunctions` of the first record's process, the addresses
+  `code.bytes` embeds for its calls into C++. On x64 they differ in every process, so they
+  aren't part of `config`, or lines would never merge. On ARM under QEMU they don't vary, so they
+  don't show in `code.varying` either;
 - `stubNames` and `typeDatas`: all of the records', sorted;
 - `distinctCodes`: how many different `code.bytes` the line stands for, `count` how many records,
   and `tests` the tests they came from.
