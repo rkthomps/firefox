@@ -64,6 +64,34 @@ it and the two trees. `corpus.py` (`dedupe` and `replay`), `replay-table.py` and
 would move. The trees can stay where they are, so `cachet-lean`'s readers needn't change. Not
 urgent: nothing breaks as it is.
 
+## The recorder: ARM's breakpoint counter (undecided)
+
+Undecided, as of 2026-11-17: this may or may not be wanted. On ARM, a `BKPT`'s immediate is the
+number of breakpoints the process emitted before it (`Assembler::as_bkpt`'s `static int hit`,
+whose low 16 bits it keeps), so it depends on everything the process compiled earlier. Release
+builds have them too: `CacheRegisterAllocator::ensureDoubleRegister` always emits an
+`assumeUnreachable`, a bare `breakpoint()` there, behind a jump over it. In the release double
+`~` stub (`0a00006e0000016a0101`), `b +8` at 52 and `bkpt` at 56 are the only bytes that vary
+between processes. x64's `int3` has no immediate.
+
+The records can't tell Lean that number. The choices:
+- **Leave it unrecorded** (now): `cachet-lean` treats `BKPT` immediates as unknown and compares the
+  rest exactly. Nothing about behaviour is lost, since a jump always skips them, but a wrong count
+  of breakpoints in a stub would go unnoticed.
+- **Record it:** each ARM compile record gets the counter when the stub's compilation starts, and
+  Lean's `as_bkpt` takes it as an input, as its compiler takes `abiFunctions`. Then:
+  - `hit` is local to `as_bkpt`, so the instrumentation moves it to file scope with an accessor,
+    inside `#ifdef JS_PHOENIX` (translated code, but builds without Phoenix stay the same);
+  - the counter is shared by all threads and isn't atomic, and wasm compiles on helper threads.
+    Record the counter at the end too: a record where end minus start isn't its code's number of
+    `BKPT`s had another thread's breakpoints interleaved;
+  - deduplication keeps the value of the record that gave a line its bytes, out of the key, as for
+    `code.abiFunctions`;
+  - record format 7, and fresh ARM runs, debug and release.
+
+It depends on whether `cachet-lean` wants to model the process-wide counter or treat the
+immediate as a free parameter.
+
 ## Substitution: follow-ups
 
 Substitute mode is built ([docs/substitution.md](docs/substitution.md)). Left to do:
