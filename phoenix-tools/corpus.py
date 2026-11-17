@@ -2,16 +2,16 @@
 """Merge, deduplicate and summarize the records of a PHOENIX_RECORD run.
 
   corpus.py dedupe RECORDS_DIR
-      Merge RECORDS_DIR/<pid>.jsonl into RECORDS_DIR/unique.jsonl, one line per
+      Merge RECORDS_DIR/<pid>.jsonl into RECORDS_DIR/unique/, one line per
       distinct generator record, with how many times it occurred, where (the
       IC's source locations) and in which tests, and into
-      RECORDS_DIR/unique-compile.jsonl, one line per distinct compile record
-      (see below). Then print a summary by kind, stub name and the tags of the
-      Value inputs.
+      RECORDS_DIR/unique-compile/<kind>.jsonl, one line per distinct compile
+      record (see below). Then print a summary by kind, stub name and the tags
+      of the Value inputs.
 
   corpus.py tests RECORDS_DIR --stub NAME [--tags TAG,TAG,...]
       Print the tests whose records have stub name NAME (and, with --tags,
-      those tags for the Value inputs, in order), from unique.jsonl.
+      those tags for the Value inputs, in order), from unique/.
 
   corpus.py replay RECORDS_DIR
       For a run with PHOENIX_REPLAY: count the compile records by what the
@@ -19,7 +19,13 @@
       substituted, with how many tests compiled each.
 
 Generator records are identical when they're equal apart from "pid" and
-"loc". Compile records are identical when they're equal apart from "pid",
+"loc"'s position, so each line has "op", its records' "loc"'s. The lines are
+split into unique/<kind>/<op>/<outcome>/<tags>.jsonl, the outcome being the
+stub name of an Attach that has one and the decision otherwise, and the tags
+the Value inputs' joined with "," ("none" if there are none). Each file's
+lines are sorted by count, most first, and unique/index.jsonl lists the files.
+
+Compile records are identical when they're equal apart from "pid",
 what belongs to the stub that triggered the compilation rather than to the
 code ("stubName", and the writer's "typeData"), and their code's bytes, but
 with the same length, and with the configuration of their process ("build"
@@ -35,20 +41,49 @@ import collections
 import hashlib
 import json
 import pathlib
+import shutil
 import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-# A record, or an entry of unique.jsonl, as parsed from JSON (phoenix-docs/docs/recorder.md).
+# A record, or a line of unique/, as parsed from JSON (phoenix-docs/docs/recorder.md).
 Record = dict[str, Any]
 # A stub's kind, its stub name and its CacheIR bytes in hex.
 StubKey = tuple[str, str, str]
+# A file of unique/: kind, op, outcome and the Value inputs' tags.
+SliceKey = tuple[str, str, str, tuple[str, ...]]
 
 PER_RUN_KEYS = ("pid", "loc")
+UNIQUE_DIR = "unique"
+UNIQUE_COMPILE_DIR = "unique-compile"
+DECISIONS = ("NoAction", "Attach", "TemporarilyUnoptimizable", "Deferred")
 
 
 def value_tags(record: Record) -> tuple[str, ...]:
     return tuple(a["tag"] for a in record["args"] if a["type"] == "Value")
+
+
+def outcome_of(record: Record) -> str:
+    if record["decision"] == "Attach" and record["stubName"]:
+        return record["stubName"]
+    return record["decision"]
+
+
+def path_part(text: str) -> str:
+    """|text| as a file name: a "/" is escaped, and so is "%", the escape."""
+    return text.replace("%", "%25").replace("/", "%2F")
+
+
+def generator_body(record: Record) -> Record:
+    """A generator record's key: the record without "pid" and "loc", but with "op"."""
+    body: Record = {}
+    for k, v in record.items():
+        if k in PER_RUN_KEYS:
+            continue
+        body[k] = v
+        if k == "kind":
+            body["op"] = record["loc"]["op"]
+    return body
 
 
 def loc_string(loc: dict[str, Any]) -> str:
@@ -67,7 +102,7 @@ def test_of(argv: list[str]) -> str | None:
 
 @dataclass
 class CompileEntry:
-    """The compile records of one line of unique-compile.jsonl."""
+    """The compile records of one line of unique-compile/<kind>.jsonl."""
 
     body: Record
     first_code: str
@@ -126,6 +161,62 @@ def compile_line(entry: CompileEntry) -> Record:
     }
 
 
+def write_unique(records_dir: pathlib.Path, unique: dict[str, Record]) -> int:
+    """Write unique/ and its index, and return how many files it has."""
+    root = records_dir / UNIQUE_DIR
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir()
+    slices: collections.defaultdict[SliceKey, list[Record]] = collections.defaultdict(list)
+    for entry in unique.values():
+        key = (entry["kind"], entry["op"], outcome_of(entry), value_tags(entry))
+        slices[key].append(entry)
+    index: list[Record] = []
+    for (kind, op, outcome, tags), entries in slices.items():
+        name = path_part(",".join(tags) or "none") + ".jsonl"
+        rel = pathlib.Path(UNIQUE_DIR, path_part(kind), path_part(op), path_part(outcome), name)
+        path = records_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entries.sort(key=lambda e: e["count"], reverse=True)
+        with path.open("w") as out:
+            for entry in entries:
+                entry = {**entry, "locs": sorted(entry["locs"]), "tests": sorted(entry["tests"])}
+                out.write(json.dumps(entry) + "\n")
+        index.append(
+            {
+                "kind": kind,
+                "op": op,
+                "outcome": outcome,
+                "tags": list(tags),
+                "path": rel.as_posix(),
+                "lines": len(entries),
+                "count": sum(e["count"] for e in entries),
+                "bytes": path.stat().st_size,
+            }
+        )
+    index.sort(key=lambda e: e["path"])
+    with (root / "index.jsonl").open("w") as out:
+        for line in index:
+            out.write(json.dumps(line) + "\n")
+    return len(index)
+
+
+def write_unique_compile(records_dir: pathlib.Path, unique: dict[str, CompileEntry]) -> int:
+    """Write unique-compile/, and return how many files it has."""
+    root = records_dir / UNIQUE_COMPILE_DIR
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir()
+    by_kind: collections.defaultdict[str, list[CompileEntry]] = collections.defaultdict(list)
+    for entry in unique.values():
+        by_kind[entry.body["kind"]].append(entry)
+    for kind, entries in by_kind.items():
+        with (root / (path_part(kind) + ".jsonl")).open("w") as out:
+            for entry in entries:
+                out.write(json.dumps(compile_line(entry)) + "\n")
+    return len(by_kind)
+
+
 def dedupe(records_dir: pathlib.Path) -> None:
     unique: dict[str, Record] = {}
     unique_compile: dict[str, CompileEntry] = {}
@@ -165,7 +256,7 @@ def dedupe(records_dir: pathlib.Path) -> None:
                 if record["record"] != "generator":
                     continue
                 total += 1
-                body = {k: v for k, v in record.items() if k not in PER_RUN_KEYS}
+                body = generator_body(record)
                 key = json.dumps(body, sort_keys=True)
                 entry = unique.setdefault(
                     key, {**body, "count": 0, "locs": set(), "tests": set()}
@@ -175,20 +266,16 @@ def dedupe(records_dir: pathlib.Path) -> None:
                 if test:
                     entry["tests"].add(test)
 
-    out_path = records_dir / "unique.jsonl"
-    with out_path.open("w") as out:
-        for entry in unique.values():
-            entry = {**entry, "locs": sorted(entry["locs"]), "tests": sorted(entry["tests"])}
-            out.write(json.dumps(entry) + "\n")
-    compile_path = records_dir / "unique-compile.jsonl"
-    with compile_path.open("w") as out:
-        for entry_c in unique_compile.values():
-            out.write(json.dumps(compile_line(entry_c)) + "\n")
+    files = write_unique(records_dir, unique)
+    compile_files = write_unique_compile(records_dir, unique_compile)
 
-    print(f"{total} records, {len(unique)} distinct, written to {out_path}")
     print(
-        f"{total_compile} compile records, {len(unique_compile)} distinct, "
-        f"written to {compile_path}"
+        f"{total} records, {len(unique)} distinct, written to "
+        f"{records_dir / UNIQUE_DIR} in {files} files"
+    )
+    print(
+        f"{total_compile} compile records, {len(unique_compile)} distinct, written to "
+        f"{records_dir / UNIQUE_COMPILE_DIR} in {compile_files} files"
     )
     summary: collections.Counter[tuple[str, str, tuple[str, ...]]] = collections.Counter()
     for entry in unique.values():
@@ -233,14 +320,19 @@ def replay(records_dir: pathlib.Path) -> None:
 
 def tests(records_dir: pathlib.Path, stub: str, tags: tuple[str, ...] | None) -> None:
     found: set[str] = set()
-    with (records_dir / "unique.jsonl").open() as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry["stubName"] != stub:
-                continue
-            if tags is not None and value_tags(entry) != tags:
-                continue
-            found.update(entry["tests"])
+    with (records_dir / UNIQUE_DIR / "index.jsonl").open() as f:
+        index = [json.loads(line) for line in f]
+    for file in index:
+        # A record whose decision isn't Attach is under its decision, whatever its stub name.
+        if file["outcome"] != stub and file["outcome"] not in DECISIONS:
+            continue
+        if tags is not None and tuple(file["tags"]) != tags:
+            continue
+        with (records_dir / file["path"]).open() as f:
+            for line in f:
+                entry = json.loads(line)
+                if entry["stubName"] == stub:
+                    found.update(entry["tests"])
     for test in sorted(found):
         print(test)
 

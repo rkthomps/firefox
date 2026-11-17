@@ -17,7 +17,7 @@
 #   phoenix-docs/docs/substitution.md). The table is copied into the run.
 #
 # It builds the shell first (skip with --no-build), runs jit-tests with --no-ion
-# --baseline-eager, and dedupes the records into records/unique.jsonl and unique-compile.jsonl.
+# --baseline-eager, and dedupes the records into records/unique/ and unique-compile/.
 
 set -euo pipefail
 
