@@ -9,8 +9,8 @@ The branch structure is in place (see [docs/branches.md](docs/branches.md)). Lef
 - Scripts for the two workflows, moving a fix to `phoenix` and moving the pin, if doing them by
   hand gets tedious.
 - A way for icarus to clone `phoenix` from the fork (`rkthomps/firefox`) instead of the upstream
-  pin, for the day a fix touches code the model translates. `PHOENIX_MOZ_REV` already chooses
-  the revision; the clone URL is hard-coded.
+  pin. Needed now: as of 2026-11-18, fixes 0004 and 0005 change code the model translates.
+  `PHOENIX_MOZ_REV` already chooses the revision; the clone URL is hard-coded.
 - A list of retired fixes: when the pin moves, a fix upstream has made is dropped, and its report
   goes with it (still reachable from the `phoenix-final/<old-pin>` tag).
 - The pin tag, `phoenix-pin/f35f2f1f3ae8`, is only local. Decide whether to push it to `origin`,

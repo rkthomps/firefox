@@ -139,8 +139,9 @@ top-level `CLAUDE.md`, which loads this file and isn't built.
    **A fix to code the model translates** (a generator, the CacheIR compiler, MASM, an
    assembler, an interpreter operation) changes what the model has to match, and icarus clones
    the unpatched pin. Ask before putting such a fix on `phoenix`: either `cachet-lean` and icarus
-   follow `phoenix`, or the fix waits for upstream. The fixes so far are all outside translated
-   code.
+   follow `phoenix`, or the fix waits for upstream. As of 2026-11-18, fixes 0004 and 0005
+   (`bug-fixes/`) are in translated code, so `cachet-lean` follows `phoenix`; icarus still clones
+   the pin (see [TODO.md](TODO.md), "Branches: follow-ups").
 
 ## Keeping the docs up to date
 
