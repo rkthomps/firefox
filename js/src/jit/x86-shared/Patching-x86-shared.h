@@ -99,7 +99,8 @@ class JmpDst {
 };
 
 inline bool CanRelinkJump(void* from, void* to) {
-  intptr_t offset = static_cast<char*>(to) - static_cast<char*>(from);
+  intptr_t offset =
+      reinterpret_cast<intptr_t>(to) - reinterpret_cast<intptr_t>(from);
   return (offset == static_cast<int32_t>(offset));
 }
 
