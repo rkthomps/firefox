@@ -34,8 +34,9 @@ records it writes (see the README's "Recording one script").
 
 ## What's recorded
 
-Every line has `v`, the format's version, and `record`, its type. This is version 6. Earlier
+Every line has `v`, the format's version, and `record`, its type. This is version 7. Earlier
 versions:
+- 6 had no `execMemory` in process records, and no `code.address` in compile records;
 - 5 had no `abiFunctions` in process records;
 - 4 had no `x86CPUInfo` in x86's and x64's process records;
 - 3 wrote CacheIR as text, `SpewCacheIROpsAsAOT`'s (the ahead-of-time IC corpus's serializer),
@@ -51,7 +52,7 @@ The first line of each process's records, written when the recorder starts, at t
 Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
 
 ```json
-{"v":6,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
+{"v":7,"record":"process","pid":1156090,"argv":["obj-js-arm/dist/bin/js","--no-ion",…,"phoenix-tools/tests/bitnot.js"],
  "build":{"backend":"arm","debug":true,"simulator":false,
           "armFlags":{"HasARMv7":true,"HasMOVWT":true,"HasLDSTREXBHD":true,"HasDMBDSBISB":true,"HasVFP":true,
                       "Has32DP":true,"HasVFPv3":true,"HasVFPv4":true,"HasNEON":true,"HasIDIV":true,
@@ -60,6 +61,7 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
                "spectreStringMitigations":false,"spectreValueMasking":false,"spectreJitToCxxCalls":false},
  "abiFunctions":[{"name":"__aeabi_idivmod","sig":null,"address":"0x33d086c"},…,
                  {"name":"JS::ToInt32","sig":"int32_t (*)(double)","address":"0x2409ce9"},…],
+ "execMemory":{"base":"0x…","size":146800640},
  "replay":null}
 ```
 
@@ -113,6 +115,18 @@ Here from the 32-bit ARM shell under QEMU ([backends.md](backends.md)):
   address and aren't in the table. Nor are other addresses code embeds, such as that of the
   message a debug build's `assumeUnreachable` passes to `js::jit::AssumeUnreachable` (a `movabs`
   on x64, in the double path of `TruncateDoubleToUInt32`, for one).
+- `execMemory`: the process's executable region, which all JIT code is allocated in
+  (`jit/ProcessExecutableMemory.cpp`): `base`, its start in hex, and `size`, its length in bytes
+  (`MaxCodeBytesPerProcess`, a constant of the build: 2,143,289,344 on 64-bit, 146,800,640 on
+  32-bit). x64's code depends on it: `Assembler::addPendingJump` sorts each jump to a fixed
+  address into a near jump, if the target is in the region (`AddressIsInExecutableMemory`), or an
+  extended jump, which `finish()` gives an entry of the extended jump table; with no extended
+  jumps it ends the code with a `ud2` instead. A call into C++ is always an extended jump, so the
+  region decides the code's size. ARM's code doesn't depend on it; it's recorded there too, so
+  that both builds' records are alike. `null` if the region isn't reserved yet, which doesn't
+  happen in the shell (it's reserved at `JS_Init`). The region is reserved at a random address:
+  on 2026-11-18, the x64 release run had a different base in each of its 14,147 processes, and
+  the ARM one, under QEMU, 11,497 bases in 14,146.
 - `replay`: the replay table's path (`PHOENIX_REPLAY`), or `null`.
 
 ### Generator records
@@ -194,7 +208,7 @@ CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~
  "cacheir":{"bytes":"0b00006c0100",
             "writer":{"numInputOperands":1,"numOperandIds":1,"numInstructions":2,"operandLastUsed":[1],
                       "stubDataSize":0,"typeData":32,"stubFields":[]}},
- "code":{"bytes":"834708014989cb…488b7f10ff270f0b",
+ "code":{"address":"0x…","bytes":"834708014989cb…488b7f10ff270f0b",
          "ops":[{"op":"GuardToInt32","offset":4},{"op":"Int32NotResult","offset":24}],
          "tooManyOps":false,"returnOffset":64,"failurePathsOffset":65,
          "relocationBytes":0,"localTracingSlots":0,"makesGCCalls":false},
@@ -207,6 +221,15 @@ CacheIR once, and every stub with that CacheIR shares the code. For the int32 `~
   belong to each stub, not to the code. `typeData` belongs to the stub too: here it's that of the
   stub whose attaching compiled the code.
 - `code`: the C++ compiler's code, even when the replay table replaced it:
+  - `address`: where the code is, in hex: `JitCode::raw()`, the buffer the linker gave
+    `Assembler::executableCopy` (`JitCode::copyFrom` passes it `raw()`; the `JitCodeHeader` is
+    before it). x64's code depends on it: `executableCopy` links each extended jump straight to
+    its target if that's within ±2 GiB of the jump (`X86Encoding::CanRelinkJump`), and through
+    its table entry otherwise, writing the target's address into the entry's last 8 bytes (the
+    entry's quad is 0 for a jump linked straight). On Linux the region and the shell are mapped
+    far apart, so calls into C++ always go through the table: in the x64 release run of
+    2026-11-18, all 233,042 table entries of its 996,269 compile records had their target's
+    address, and the nearest target was 21.6 TiB from its entry;
   - `bytes`: the instructions, from the code's start (`JitCode::raw()`), in hex;
   - `ops`: each CacheIR op and the offset where its code begins. An op's code runs to the next
     op's offset, and the last one's to `returnOffset`, where the return to the caller begins.
@@ -289,6 +312,10 @@ under another one. Each line is a record without `pid` and `stubName`, `typeData
   `code.bytes` embeds for its calls into C++. On x64 they differ in every process, so they
   aren't part of `config`, or lines would never merge. On ARM under QEMU they don't vary, so they
   don't show in `code.varying` either;
+- `code.address` and `code.execMemory`: the first record's `code.address`, and its process's
+  `execMemory`. With `code.bytes` and `code.abiFunctions`, all four are from that one
+  compilation. Like `code.abiFunctions`, they vary between processes, and aren't part of what
+  makes records the same line;
 - `stubNames` and `typeDatas`: all of the records', sorted;
 - `distinctCodes`: how many different `code.bytes` the line stands for, `count` how many records,
   and `tests` the tests they came from.
