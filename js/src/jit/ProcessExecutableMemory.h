@@ -104,6 +104,12 @@ extern size_t LikelyAvailableExecutableMemory();
 // Returns whether |p| is stored in the executable code buffer.
 extern bool AddressIsInExecutableMemory(const void* p);
 
+#ifdef JS_PHOENIX
+// The start of the MaxCodeBytesPerProcess bytes AddressIsInExecutableMemory
+// checks, or nullptr before they're reserved.
+extern void* ProcessExecutableMemoryBase();
+#endif
+
 // RWX page permissions are not supported on Apple Silicon. We have to use this
 // RAII class to temporarily mark JIT memory as writable for the current thread
 // with pthread_jit_write_protect_np. This class is a no-op on other platforms

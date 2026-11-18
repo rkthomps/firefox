@@ -30,8 +30,10 @@ what belongs to the stub that triggered the compilation rather than to the
 code ("stubName", and the writer's "typeData"), and their code's bytes, but
 with the same length, and with the configuration of their process ("build"
 and "jitOptions"). Embedded addresses make the bytes differ from process to
-process, so each line has the first record's bytes, the addresses of the ABI
-functions in that record's process ("abiFunctions"), and the spans of bytes
+process, so each line has the first record's bytes and the addresses they were
+compiled with: the code's own ("address"), the ABI functions' in that record's
+process ("abiFunctions") and its executable region ("execMemory"), all from that
+one compilation; and the spans of bytes
 where some other record differs from them. A record's test is the script its
 process ran, from the process record that starts each run's lines: the last
 "-f" or "--module" argument.
@@ -107,7 +109,9 @@ class CompileEntry:
 
     body: Record
     first_code: str
+    first_address: str | None  # where first_code was copied
     first_abi_functions: list[Record] | None  # the address table of first_code's process
+    first_exec_memory: Record | None  # the executable region of first_code's process
     varying: int = 0  # the bits where some record's code differs from first_code
     codes: set[bytes] = field(default_factory=set[bytes])  # digests of the distinct codes
     count: int = 0
@@ -118,7 +122,7 @@ class CompileEntry:
 
 def compile_body(record: Record, config: Record) -> Record:
     """A compile record's key: the record without what varies by stub or by process."""
-    code = {k: v for k, v in record["code"].items() if k != "bytes"}
+    code = {k: v for k, v in record["code"].items() if k not in ("bytes", "address")}
     code["length"] = len(record["code"]["bytes"]) // 2
     cacheir = record["cacheir"]
     if cacheir is not None:
@@ -152,7 +156,9 @@ def compile_line(entry: CompileEntry) -> Record:
     code = {k: v for k, v in body["code"].items() if k != "length"}
     code["bytes"] = entry.first_code
     code["varying"] = byte_spans(entry.varying, length)
+    code["address"] = entry.first_address
     code["abiFunctions"] = entry.first_abi_functions
+    code["execMemory"] = entry.first_exec_memory
     return {
         **body,
         "code": code,
@@ -229,6 +235,7 @@ def dedupe(records_dir: pathlib.Path) -> None:
         test = None
         config: Record = {}
         abi_functions: list[Record] | None = None
+        exec_memory: Record | None = None
         with path.open() as f:
             for lineno, line in enumerate(f, 1):
                 try:
@@ -240,13 +247,21 @@ def dedupe(records_dir: pathlib.Path) -> None:
                     test = test_of(record["argv"])
                     config = {"build": record.get("build"), "jitOptions": record.get("jitOptions")}
                     abi_functions = record.get("abiFunctions")
+                    exec_memory = record.get("execMemory")
                     continue
                 if record["record"] == "compile":
                     total_compile += 1
                     body = compile_body(record, config)
                     code = record["code"]["bytes"]
                     entry_c = unique_compile.setdefault(
-                        json.dumps(body, sort_keys=True), CompileEntry(body, code, abi_functions)
+                        json.dumps(body, sort_keys=True),
+                        CompileEntry(
+                            body,
+                            code,
+                            record["code"].get("address"),
+                            abi_functions,
+                            exec_memory,
+                        ),
                     )
                     entry_c.count += 1
                     entry_c.codes.add(hashlib.blake2b(code.encode(), digest_size=16).digest())

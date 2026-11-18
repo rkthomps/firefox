@@ -14,6 +14,7 @@
 #include "jit/ABIFunctionList-inl.h"
 #include "jit/JitCode.h"
 #include "jit/JitOptions.h"
+#include "jit/ProcessExecutableMemory.h"
 #include "js/ColumnNumber.h"
 #include "util/GetPidProvider.h"
 #include "vm/BytecodeUtil.h"
@@ -30,7 +31,7 @@ using namespace js::jit;
 using namespace js::jit::phoenix;
 
 // The version of the record format, in every record's "v".
-static constexpr int RecordVersion = 6;
+static constexpr int RecordVersion = 7;
 
 // Records give these enums by number, so a renumbering must not go unnoticed.
 static_assert(uint8_t(StubField::Type::Limit) == 17);
@@ -151,7 +152,9 @@ static void WriteABIFunctions(GenericPrinter& out) {
 
 // The first line of each record file: the process's command line, which tells
 // which test the records came from, the build, the JIT options that change the
-// code of stubs, and the replay table.
+// code of stubs, the addresses stub code depends on (ABI functions, and the
+// executable region x64 uses to choose near or extended jumps), and the replay
+// table.
 static void WriteProcessRecord(FILE* file) {
   Fprinter out(file);
   out.printf("{\"v\":%d,\"record\":\"process\",\"pid\":%d,\"argv\":[",
@@ -193,6 +196,12 @@ static void WriteProcessRecord(FILE* file) {
       JitOptions.spectreValueMasking ? "true" : "false",
       JitOptions.spectreJitToCxxCalls ? "true" : "false");
   WriteABIFunctions(out);
+  if (void* base = ProcessExecutableMemoryBase()) {
+    out.printf(",\"execMemory\":{\"base\":\"0x%" PRIxPTR "\",\"size\":%zu}",
+               uintptr_t(base), MaxCodeBytesPerProcess);
+  } else {
+    out.put(",\"execMemory\":null");
+  }
   out.put(",\"replay\":");
   const char* replay = getenv("PHOENIX_REPLAY");
   if (replay && *replay) {
@@ -528,6 +537,7 @@ void phoenix::RecordCompile(CacheKind kind, const char* stubName,
   WriteCacheIR(json, writer, /* withStubFieldValues = */ false);
 
   json.beginObjectProperty("code");
+  json.formatProperty("address", "0x%" PRIxPTR, uintptr_t(code->raw()));
   WriteHex(json, "bytes", code->raw(), code->instructionsSize());
   json.beginListProperty("ops");
   for (size_t i = 0; i < info.numOps; i++) {

@@ -920,6 +920,10 @@ bool js::jit::AddressIsInExecutableMemory(const void* p) {
   return execMemory.containsAddress(p);
 }
 
+#ifdef JS_PHOENIX
+void* js::jit::ProcessExecutableMemoryBase() { return execMemory.base(); }
+#endif
+
 bool js::jit::ReprotectRegion(void* start, size_t size,
                               ProtectionSetting protection,
                               MustFlushICache flushICache) {
