@@ -750,13 +750,13 @@ class ProcessExecutableMemory {
   }
 
   void assertValidAddress(void* p, size_t bytes) const {
-    MOZ_RELEASE_ASSERT(p >= base_ &&
+    MOZ_RELEASE_ASSERT(uintptr_t(p) >= uintptr_t(base_) &&
                        uintptr_t(p) + bytes <=
                            uintptr_t(base_) + MaxCodeBytesPerProcess);
   }
 
   bool containsAddress(const void* p) const {
-    return p >= base_ &&
+    return uintptr_t(p) >= uintptr_t(base_) &&
            uintptr_t(p) < uintptr_t(base_) + MaxCodeBytesPerProcess;
   }
 
